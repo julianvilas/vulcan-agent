@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/adevinta/vulcan-agent.svg?branch=master)](https://travis-ci.org/adevinta/vulcan-agent)
+
 # Vulcan Agent
 
 Vulcan Agent is the Vulcan component that runs and monitors check jobs.
