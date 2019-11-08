@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	docker "github.com/adevinta/dockerutils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/lestrrat-go/backoff"
+	"github.com/sirupsen/logrus"
 
 	agent "github.com/adevinta/vulcan-agent"
 	"github.com/adevinta/vulcan-agent/check"
