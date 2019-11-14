@@ -50,9 +50,12 @@ func NewAgent(ctx context.Context, cancel context.CancelFunc, id string, storage
 		return &Agent{}, err
 	}
 
-	err = setKubectlConfig(cfg.Runtime.Kubernetes)
-	if err != nil {
-		return &Agent{}, err
+	// Overwrite Kubectl configuration only if present in the configuration file.
+	if cfg.Runtime.Kubernetes != (config.KubernetesConfig{}) {
+		err = setKubectlConfig(cfg.Runtime.Kubernetes, l)
+		if err != nil {
+			return &Agent{}, err
+		}
 	}
 
 	return &Agent{
@@ -106,11 +109,10 @@ func (a *Agent) Run(checkID string) error {
 
 	envVars := a.getEnvVars(job)
 
-	cmd := exec.Command(
-		"kubectl",
+	return runCmd(
 		append(
 			[]string{
-				"run",
+				"kubectl", "run",
 				// Pod name
 				job.CheckID,
 				// Never restart
@@ -122,10 +124,10 @@ func (a *Agent) Run(checkID string) error {
 			},
 			// Environment variables
 			envVars...,
-		)...,
+		),
+		nil,
+		a.log,
 	)
-
-	return cmd.Run()
 }
 
 // Kill will forcefully remove a container and return any error encountered.
@@ -135,9 +137,10 @@ func (a *Agent) Kill(checkID string) error {
 		return err
 	}
 
-	cmd := exec.Command("kubectl", "delete", "pod", "--grace-period", "0", job.CheckID)
-
-	return cmd.Run()
+	return runCmd(
+		[]string{"kubectl", "delete", "pod", "--grace-period", "0", job.CheckID},
+		nil, a.log,
+	)
 }
 
 // AbortChecks gets the all the checks belonging to a scan that are currently running
@@ -173,9 +176,13 @@ func (a *Agent) Abort(checkID string) error {
 	// This command will send a SIGTERM signal to the entrypoint.
 	// It will wait for the amount of seconds configured and then
 	// forcefully delete the pod.
-	cmd := exec.Command("kubectl", "delete", "pod", "--grace-period", string(timeout), job.CheckID)
-
-	return cmd.Run()
+	return runCmd(
+		[]string{
+			"kubectl", "delete", "pod", "--grace-period",
+			string(timeout), job.CheckID,
+		},
+		nil, a.log,
+	)
 }
 
 // Raw returns the raw output of the check and any errors encountered.
@@ -186,16 +193,10 @@ func (a *Agent) Raw(checkID string) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	cmd := exec.Command("kubectl", "get", "logs", job.CheckID)
-
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	err = cmd.Run()
-	if err != nil {
-		return []byte{}, err
-	}
+	err = runCmd([]string{"kubectl", "get", "logs", job.CheckID}, &out, a.log)
 
-	return out.Bytes(), nil
+	return out.Bytes(), err
 }
 
 // getEnvVars will return the environment variable flags for a given job.
@@ -270,36 +271,46 @@ func getChecktypeInfo(imageURI string) (checktypeName string, checktypeVersion s
 	return
 }
 
-// setKubectlConfig sets the configuration for Kubectl
-func setKubectlConfig(config config.KubernetesConfig) error {
-	cmd := exec.Command("kubectl", "config", "set-cluster", config.Cluster.Name,
-		"--server", config.Cluster.Server,
+// setKubectlConfig sets the configuration for Kubectl.
+func setKubectlConfig(config config.KubernetesConfig, log *logrus.Entry) error {
+	err := runCmd(
+		[]string{
+			"kubectl", "config", "set-cluster",
+			config.Cluster.Name, "--server", config.Cluster.Server,
+		},
+		nil, log,
 	)
-	err := cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("kubectl", "config", "set-context", config.Context.Name,
-		"--cluster", config.Context.Cluster,
-		"--namespace", config.Context.Namespace,
-		"--user", config.Context.User,
+	err = runCmd(
+		[]string{
+			"kubectl", "config", "set-context",
+			config.Context.Name, "--cluster", config.Context.Cluster,
+			"--namespace", config.Context.Namespace, "--user", config.Context.User,
+		},
+		nil, log,
 	)
-	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("kubectl", "config", "set-credentials", config.Credentials.Name,
-		"--token", config.Credentials.Token,
+	err = runCmd(
+		[]string{
+			"kubectl", "config", "set-credentials",
+			config.Credentials.Name, "--token", config.Credentials.Token,
+		},
+		nil, log,
 	)
-	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("kubectl", "config", "set", "current-context", config.Context.Name)
-	return cmd.Run()
+	return runCmd(
+		[]string{"kubectl", "config", "set", "current-context", config.Context.Name},
+		nil, log,
+	)
 }
 
 // getDockerVars a map of environment variables to a format supported by Kubectl
@@ -311,4 +322,12 @@ func getKubectlVars(vars map[string]string) []string {
 	}
 
 	return kubectlVars
+}
+
+// runCmd runs a system command, outputs to out and logs it in debug level.
+func runCmd(cmdLine []string, out *bytes.Buffer, log *logrus.Entry) error {
+	log.WithFields(logrus.Fields{"cmd": cmdLine}).Debug("running command")
+	cmd := exec.Command(cmdLine[0], cmdLine[1:]...)
+	cmd.Stdout = out
+	return cmd.Run()
 }
