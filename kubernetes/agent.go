@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/sirupsen/logrus"
-	"github.com/adevinta/vulcan-agent"
+	agent "github.com/adevinta/vulcan-agent"
 	"github.com/adevinta/vulcan-agent/check"
 	"github.com/adevinta/vulcan-agent/config"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -328,6 +328,8 @@ func getKubectlVars(vars map[string]string) []string {
 func runCmd(cmdLine []string, out *bytes.Buffer, log *logrus.Entry) error {
 	log.WithFields(logrus.Fields{"cmd": cmdLine}).Debug("running command")
 	cmd := exec.Command(cmdLine[0], cmdLine[1:]...)
-	cmd.Stdout = out
+	if out != nil {
+		cmd.Stdout = out
+	}
 	return cmd.Run()
 }
