@@ -1,0 +1,7 @@
+.git
+Dockerfile
+.dockerignore
+.gitignore
+.travis.yml
+*.md
+LICENSE
