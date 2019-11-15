@@ -194,7 +194,7 @@ func (a *Agent) Raw(checkID string) ([]byte, error) {
 	}
 
 	var out bytes.Buffer
-	err = runCmd([]string{"kubectl", "get", "logs", job.CheckID}, &out, a.log)
+	err = runCmd([]string{"kubectl", "logs", job.CheckID}, &out, a.log)
 
 	return out.Bytes(), err
 }
