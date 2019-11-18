@@ -206,7 +206,7 @@ func (a *Agent) getEnvVars(job check.Job) []string {
 	checktypeName, checktypeVersion := getChecktypeInfo(job.Image)
 	logLevel := a.config.Check.LogLevel
 
-	vars := getKubectlVars(a.config.Check.Vars[checktypeName])
+	vars := kubectlVars(job.RequiredVars, a.config.Check.Vars)
 
 	return append(
 		[]string{
@@ -313,12 +313,12 @@ func setKubectlConfig(config config.KubernetesConfig, log *logrus.Entry) error {
 	)
 }
 
-// getDockerVars a map of environment variables to a format supported by Kubectl
-func getKubectlVars(vars map[string]string) []string {
+// kubectlVars assigns the required environment variables in a format supported by Kubectl.
+func kubectlVars(requiredVars []string, envVars map[string]string) []string {
 	var kubectlVars []string
 
-	for k, v := range vars {
-		kubectlVars = append(kubectlVars, "--env", fmt.Sprintf("%s=%s", k, v))
+	for _, requiredVar := range requiredVars {
+		kubectlVars = append(kubectlVars, "--env", fmt.Sprintf("%s=%s", requiredVar, envVars[requiredVar]))
 	}
 
 	return kubectlVars

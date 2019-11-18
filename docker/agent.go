@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	docker "github.com/adevinta/dockerutils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/lestrrat-go/backoff"
+	"github.com/sirupsen/logrus"
 
 	agent "github.com/adevinta/vulcan-agent"
 	"github.com/adevinta/vulcan-agent/check"
@@ -291,7 +291,7 @@ func (a *Agent) getRunConfig(job check.Job) docker.RunConfig {
 	checktypeName, checktypeVersion := getChecktypeInfo(job.Image)
 	logLevel := a.config.Check.LogLevel
 
-	vars := getDockerVars(a.config.Check.Vars[checktypeName])
+	vars := dockerVars(job.RequiredVars, a.config.Check.Vars)
 	return docker.RunConfig{
 		ContainerConfig: &container.Config{
 			Hostname: job.CheckID,
@@ -363,12 +363,12 @@ func getChecktypeInfo(imageURI string) (checktypeName string, checktypeVersion s
 	return
 }
 
-// getDockerVars a map of environment variables to a format supported by Docker
-func getDockerVars(vars map[string]string) []string {
+// dockerVars assigns the required environment variables in a format supported by Docker.
+func dockerVars(requiredVars []string, envVars map[string]string) []string {
 	var dockerVars []string
 
-	for k, v := range vars {
-		dockerVars = append(dockerVars, fmt.Sprintf("%s=%s", k, v))
+	for _, requiredVar := range requiredVars {
+		dockerVars = append(dockerVars, fmt.Sprintf("%s=%s", requiredVar, envVars[requiredVar]))
 	}
 
 	return dockerVars

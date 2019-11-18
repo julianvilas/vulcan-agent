@@ -208,6 +208,7 @@ func (m *MemoryStorage) NewJob(parent context.Context, params JobParams, log *lo
 			CheckID:       params.CheckID,
 			Target:        params.Target,
 			Options:       params.Options,
+			RequiredVars:  params.RequiredVars,
 			Image:         params.Image,
 			Timeout:       params.Timeout,
 		},
