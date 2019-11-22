@@ -67,9 +67,9 @@ type APIConfig struct {
 
 // CheckConfig defines the configuration for the checks.
 type CheckConfig struct {
-	AbortTimeout int                          `toml:"abort_timeout"` // Time to wait for a check container to stop gracefully.
-	LogLevel     string                       `toml:"log_level"`     // Log level for the check default logger.
-	Vars         map[string]map[string]string `toml:"vars"`          // Environment variables to inject to checks.
+	AbortTimeout int               `toml:"abort_timeout"` // Time to wait for a check container to stop gracefully.
+	LogLevel     string            `toml:"log_level"`     // Log level for the check default logger.
+	Vars         map[string]string `toml:"vars"`          // Environment variables to inject to checks.
 }
 
 // RuntimeConfig defines the configuration for the check runtimes.
