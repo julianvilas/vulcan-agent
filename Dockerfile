@@ -19,9 +19,12 @@ RUN go build -o vulcan-agent-kubernetes -a -tags netgo -ldflags '-w' ./cmd/vulca
 ### App
 FROM alpine:3.10
 
+RUN apk add --no-cache --update gettext ca-certificates
+
 WORKDIR /app
 
 COPY --from=builder /app/vulcan-agent-kubernetes .
+COPY config.toml .
 COPY run.sh .
 
-CMD ["/app/vulcan-agent-kubernetes"]
+CMD ["/app/run.sh"]

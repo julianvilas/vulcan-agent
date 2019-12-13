@@ -80,3 +80,31 @@ reconnecting to the stream if necessary.
 
 The persistence is the component which implements functions to communicate with
 the persistence service.
+
+# Docker execute
+
+Those are the variables you have to use:
+
+|Variable|Description|Sample|
+|---|---|---|
+|JOBQUEUE_ID||afabf2a1-8cef-41b0-a21a-65909df887a2|
+|LOG_LEVEL||debug|
+|PERSISTENCE_ENDPOINT||http://vulcan-persistence/v1|
+|RESULTS_ENDPOINT||http://vulcan-results/v1|
+|STREAM_ENDPOINT||ws://vulcan-stream/stream|
+|PORT||8080|
+|CHECK_LOG_LEVEL||debug|
+|NESSUS_ENDPOINT||https://cloud.tenable.com|
+|NESSUS_USERNAME||TBD|
+|NESSUS_PASSWORD||TBD|
+|GITHUB_ENTERPRISE_TOKEN||TBD|
+
+```bash
+docker build . -t va
+
+# Use the default config.toml customized with env variables.
+docker run --env-file ./local.env va
+
+# Use custom config.toml
+docker run -v `pwd`/custom.toml:/app/config.toml va
+```
