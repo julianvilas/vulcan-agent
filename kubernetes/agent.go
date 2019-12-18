@@ -18,6 +18,7 @@ import (
 
 const (
 	defaultPublicIfaceName = "eth0"
+	censoredValue          = "[CENSORED]"
 )
 
 // CheckConfig stores the configuration required to run a check.
@@ -337,14 +338,15 @@ func runCmd(cmdLine []string, out *bytes.Buffer, log *logrus.Entry) error {
 
 // censorCmdLine removes potentially sensitive data from a command in order to log it.
 func censorCmdLine(cmdLine []string) []string {
-	envVar := regexp.MustCompile(`(.*?)=.*`)
 	for i, v := range cmdLine {
 		if v == "--token" {
-			cmdLine[i+1] = "[CENSORED]"
+			cmdLine[i+1] = censoredValue
 		}
 		if v == "--env" {
-			if isRequiredVar(cmdLine[i+1]) {
-				cmdLine[i+1] = envVar.ReplaceAllString(cmdLine[i+1], "$1=[CENSORED]")
+			envVarRegexp := regexp.MustCompile(`[^=]*`)
+			envVar := envVarRegexp.FindString(cmdLine[i+1])
+			if isRequiredVar(envVar) {
+				cmdLine[i+1] = fmt.Sprintf("%v=%v", envVar, censoredValue)
 			}
 		}
 	}
