@@ -326,10 +326,47 @@ func kubectlVars(requiredVars []string, envVars map[string]string) []string {
 
 // runCmd runs a system command, outputs to out and logs it in debug level.
 func runCmd(cmdLine []string, out *bytes.Buffer, log *logrus.Entry) error {
-	log.WithFields(logrus.Fields{"cmd": cmdLine}).Debug("running command")
 	cmd := exec.Command(cmdLine[0], cmdLine[1:]...)
 	if out != nil {
 		cmd.Stdout = out
 	}
+	cmdLine = censorCmdLine(cmdLine)
+	log.WithFields(logrus.Fields{"cmd": cmdLine}).Debug("running command")
 	return cmd.Run()
+}
+
+// censorCmdLine removes potentially sensitive data from a command in order to log it.
+func censorCmdLine(cmdLine []string) []string {
+	envVar := regexp.MustCompile(`(.*?)=.*`)
+	for i, v := range cmdLine {
+		if v == "--token" {
+			cmdLine[i+1] = "[CENSORED]"
+		}
+		if v == "--env" {
+			if isRequiredVar(cmdLine[i+1]) {
+				cmdLine[i+1] = envVar.ReplaceAllString(cmdLine[i+1], "$1=[CENSORED]")
+			}
+		}
+	}
+
+	return cmdLine
+}
+
+// isRequiredVar returns whether or not an environment variable is one required by the check.
+func isRequiredVar(envVar string) bool {
+	for _, agentVar := range []string{
+		agent.CheckIDVar,
+		agent.ChecktypeNameVar,
+		agent.ChecktypeVersionVar,
+		agent.CheckTargetVar,
+		agent.CheckOptionsVar,
+		agent.CheckLogLevelVar,
+		agent.AgentAddressVar,
+	} {
+		if envVar == agentVar {
+			return false
+		}
+	}
+
+	return true
 }
