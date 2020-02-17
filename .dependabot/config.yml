@@ -1,0 +1,18 @@
+version: 1
+update_configs:
+  - package_manager: "go:modules"
+    directory: "/"
+    update_schedule: "weekly"
+    allowed_updates:
+      - match:
+          update_type: "security"
+      - match:
+          dependency_name: "*vulcan*"
+      - match:
+          dependency_name: "errors"
+      - match:
+          dependency_name: "restuss"
+      - match:
+          dependency_name: "dockerutils"
+      - match:
+          dependency_name: "gozuul"
