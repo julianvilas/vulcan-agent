@@ -57,7 +57,9 @@ type UploaderConfig struct {
 
 // SQSConfig defines the configuration for the SQS queue.
 type SQSConfig struct {
-	PollingInterval int `toml:"polling_interval"`
+	PollingInterval int    `toml:"polling_interval"`
+	Endpoint        string `toml:"endpoint"`
+	Region          string `toml:"region"`
 }
 
 // APIConfig defines the configuration for the agent API.
