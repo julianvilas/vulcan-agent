@@ -62,14 +62,16 @@ func NewAgent(ctx context.Context, cancel context.CancelFunc, id string, storage
 
 	cli := docker.NewClient(envCli)
 
-	err = cli.Login(
-		ctx,
-		cfg.Runtime.Docker.Registry.Server,
-		cfg.Runtime.Docker.Registry.User,
-		cfg.Runtime.Docker.Registry.Pass,
-	)
-	if err != nil {
-		return &Agent{}, err
+	if cfg.Runtime.Docker.Registry.Server != "" {
+		err = cli.Login(
+			ctx,
+			cfg.Runtime.Docker.Registry.Server,
+			cfg.Runtime.Docker.Registry.User,
+			cfg.Runtime.Docker.Registry.Pass,
+		)
+		if err != nil {
+			return &Agent{}, err
+		}
 	}
 	var addr string
 	if cfg.API.Host != "" {
