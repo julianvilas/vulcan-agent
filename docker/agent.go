@@ -62,6 +62,8 @@ func NewAgent(ctx context.Context, cancel context.CancelFunc, id string, storage
 
 	cli := docker.NewClient(envCli)
 
+	// If registry server is not provided we assume public
+	// DockerHub is being used without authenticate.
 	if cfg.Runtime.Docker.Registry.Server != "" {
 		err = cli.Login(
 			ctx,
