@@ -29,9 +29,8 @@ type sqsMessage struct {
 }
 
 type queueData struct {
-	endpoint string
-	region   string
-	name     string
+	region string
+	name   string
 }
 
 // NewSQSQueueManager creates a new queue manager that reads messages from AWS SQS.
@@ -39,15 +38,22 @@ type queueData struct {
 // that the queue manager can read the appropriate amount of messages.
 // The pause channel sends the current paused status of the scheduler
 // so that the queue manager can pause and resume reading messages.
-func NewSQSQueueManager(queueARN string, pollTime time.Duration, capacity chan int, pause chan bool) (*SQSQueueManager, error) {
+func NewSQSQueueManager(queueARN string, pollTime time.Duration, endpoint string, region string, capacity chan int, pause chan bool) (*SQSQueueManager, error) {
 	sess, err := session.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("error creating SQS session: %v", err)
 	}
 
 	qd := parseQueueARN(queueARN)
+	if region == "" {
+		region = qd.region
+	}
 
-	svc := sqs.New(sess, aws.NewConfig().WithEndpoint(qd.endpoint).WithRegion(qd.region))
+	svc := sqs.New(sess, aws.NewConfig().WithRegion(region))
+
+	if endpoint != "" {
+		svc = sqs.New(sess, aws.NewConfig().WithRegion(region).WithEndpoint(endpoint))
+	}
 
 	params := &sqs.GetQueueUrlInput{
 		QueueName: aws.String(qd.name),
@@ -156,11 +162,9 @@ func (msg *sqsMessage) Delete() error {
 func parseQueueARN(queueARN string) queueData {
 	arn := strings.Split(queueARN, ":")
 	region := arn[3]
-	accountID := arn[4]
 	name := arn[5]
 	return queueData{
-		name:     name,
-		region:   region,
-		endpoint: fmt.Sprintf("https://sqs.%v.amazonaws.com/%v/%v", region, accountID, name),
+		name:   name,
+		region: region,
 	}
 }
