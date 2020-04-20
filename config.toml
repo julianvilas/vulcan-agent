@@ -45,6 +45,9 @@ GITHUB_ENTERPRISE_TOKEN = "$GITHUB_ENTERPRISE_TOKEN"
 [runtime.kubernetes]
 [runtime.kubernetes.cluster]
 
+[runtime.gateway]
+endpoint = "$GATEWAY_ENDPOINT"
+
 [asg]
 interval = 300
 region = "eu-west-1"

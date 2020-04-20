@@ -13,8 +13,9 @@ RUN go mod download
 
 COPY . .
 
-# RUN go build -o vulcan-agent-docker -a -tags netgo -ldflags '-w' ./cmd/vulcan-agent-docker/main.go 
-RUN go build -o vulcan-agent-kubernetes -a -tags netgo -ldflags '-w' ./cmd/vulcan-agent-kubernetes/main.go 
+# RUN go build -o vulcan-agent-docker -a -tags netgo -ldflags '-w' ./cmd/vulcan-agent-docker/main.go
+# RUN go build -o vulcan-agent-kubernetes -a -tags netgo -ldflags '-w' ./cmd/vulcan-agent-kubernetes/main.go
+RUN go build -o vulcan-agent -a -tags netgo -ldflags '-w' ./cmd/vulcan-agent-gateway/main.go
 
 ### App
 FROM alpine:3.10
@@ -29,7 +30,7 @@ ENV COMMIT "$COMMIT"
 
 WORKDIR /app
 
-COPY --from=builder /app/vulcan-agent-kubernetes .
+COPY --from=builder /app/vulcan-agent .
 COPY config.toml .
 COPY run.sh .
 

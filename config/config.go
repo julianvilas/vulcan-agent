@@ -80,6 +80,7 @@ type CheckConfig struct {
 type RuntimeConfig struct {
 	Docker     DockerConfig     `toml:"docker"`
 	Kubernetes KubernetesConfig `toml:"kubernetes"`
+	Gateway    GatewayConfig    `toml:"gateway"`
 }
 
 // DockerConfig defines the configuration for the Docker runtime environment.
@@ -122,6 +123,10 @@ type ContextConfig struct {
 type CredentialsConfig struct {
 	Name  string `toml:"name"`
 	Token string `toml:"token"`
+}
+
+type GatewayConfig struct {
+	Endpoint string `toml:"endpoint"`
 }
 
 // ReadConfig reads and parses a configuration file.
