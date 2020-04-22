@@ -5,7 +5,7 @@ log_file = ""
 timeout = 300
 
 [scheduler]
-concurrent_jobs = 10
+concurrent_jobs = $CONCURRENT_JOBS
 monitor_interval = 1
 heartbeat_interval = 10
 
@@ -21,8 +21,12 @@ timeout = 10
 [stream]
 endpoint = "$STREAM_ENDPOINT"
 timeout = 60
+retries = 5
+retry_interval = 5
 
 [sqs]
+region = "$REGION"
+endpoint = "$AWS_SQS_ENDPOINT"
 polling_interval = 5
 
 [api]

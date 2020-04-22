@@ -94,6 +94,14 @@ func (a *Agent) SetStatus(status string) {
 	a.status = status
 }
 
+func buildBody(vars map[string]string) string {
+	var attrs []string
+	for k, v := range vars {
+		attrs = append(attrs, fmt.Sprintf("\"%s\":\"%s\"", k, v))
+	}
+	return strings.Join(attrs, ",")
+}
+
 // Run runs the job in the Kubernetes cluster.
 // It will store the pod name in the job.Meta field.
 // It will update the job stored in the jobs map.
@@ -106,13 +114,13 @@ func (a *Agent) Run(checkID string) error {
 		return err
 	}
 
-	envVars := a.getEnvVars(job)
-
 	checktypeName, _ := getChecktypeInfo(job.Image)
 	url := fmt.Sprintf("%s/%s", a.config.Runtime.Gateway.Endpoint, checktypeName)
-	var jsonStr = fmt.Sprintf("{%s}", strings.Join(envVars, ","))
+	bodyStr := buildBody(a.getVars(job, false))
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(jsonStr)))
+	a.log.WithFields(logrus.Fields{"check_id": checkID, "url": url, "body": buildBody(a.getVars(job, true))}).Debug("faas-begin")
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(bodyStr)))
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -122,14 +130,11 @@ func (a *Agent) Run(checkID string) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("response Status:", resp.Status)
-	fmt.Println("response Headers:", resp.Header)
-	body, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("response Body:", string(body))
+	ioutil.ReadAll(resp.Body)
 
-	meta := GatewayRequest{
-		CallID: resp.Header.Get("X-Call-Id"),
-	}
+	meta := GatewayRequest{CallID: resp.Header.Get("X-Call-Id")}
+
+	a.log.WithFields(logrus.Fields{"check_id": checkID, "X-Call-Id": meta.CallID, "status": resp.StatusCode}).Debug("faas-end")
 
 	if err := a.storage.SetMeta(job.CheckID, meta); err != nil {
 		return err
@@ -172,24 +177,27 @@ func (a *Agent) Raw(checkID string) ([]byte, error) {
 // getEnvVars will return the environment variable flags for a given job.
 // It will inject the check options and target as environment variables.
 // It will return the generated slice of flags.
-func (a *Agent) getEnvVars(job check.Job) []string {
+func (a *Agent) getVars(job check.Job, censored bool) map[string]string {
 	checktypeName, checktypeVersion := getChecktypeInfo(job.Image)
 	logLevel := a.config.Check.LogLevel
 
-	vars := jsonVars(job.RequiredVars, a.config.Check.Vars)
+	var vars map[string]string
+	for _, rv := range job.RequiredVars {
+		if censored {
+			vars[rv] = "***"
+		} else {
+			vars[rv] = a.config.Check.Vars[rv]
+		}
+	}
+	vars[agent.CheckIDVar] = job.CheckID
+	vars[agent.ChecktypeNameVar] = checktypeName
+	vars[agent.ChecktypeVersionVar] = checktypeVersion
+	vars[agent.CheckTargetVar] = job.Target
+	vars[agent.CheckOptionsVar] = job.Options
+	vars[agent.CheckLogLevelVar] = logLevel
+	vars[agent.AgentAddressVar] = a.addr
 
-	return append(
-		[]string{
-			fmt.Sprintf("\"%s\":\"%s\"", agent.CheckIDVar, job.CheckID),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.ChecktypeNameVar, checktypeName),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.ChecktypeVersionVar, checktypeVersion),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.CheckTargetVar, job.Target),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.CheckOptionsVar, job.Options),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.CheckLogLevelVar, logLevel),
-			fmt.Sprintf("\"%s\":\"%s\"", agent.AgentAddressVar, a.addr),
-		},
-		vars...,
-	)
+	return vars
 }
 
 // getAgentAddr returns the current address of the agent API from the Internet.
@@ -239,15 +247,4 @@ func getChecktypeInfo(imageURI string) (checktypeName string, checktypeVersion s
 	checktypeVersion = matches[2]
 
 	return
-}
-
-// kubectlVars assigns the required environment variables in a format supported by Kubectl.
-func jsonVars(requiredVars []string, envVars map[string]string) []string {
-	var vars []string
-
-	for _, requiredVar := range requiredVars {
-		vars = append(vars, fmt.Sprintf("\"%s\":\"%s\"", requiredVar, envVars[requiredVar]))
-	}
-
-	return vars
 }
