@@ -99,7 +99,7 @@ func buildBody(vars map[string]string) string {
 	for k, v := range vars {
 		attrs = append(attrs, fmt.Sprintf("\"%s\":\"%s\"", k, v))
 	}
-	return strings.Join(attrs, ",")
+	return fmt.Sprintf("{ %s }", strings.Join(attrs, ","))
 }
 
 // Run runs the job in the Kubernetes cluster.
@@ -119,9 +119,11 @@ func (a *Agent) Run(checkID string) error {
 	bodyStr := buildBody(a.getVars(job, false))
 
 	a.log.WithFields(logrus.Fields{"check_id": checkID, "url": url, "body": buildBody(a.getVars(job, true))}).Debug("faas-begin")
+	a.log.WithFields(logrus.Fields{"check_id": checkID, "url": url, "body": buildBody(a.getVars(job, true))}).Debug("faas-begin")
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(bodyStr)))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Callback-Url", fmt.Sprintf("http://%s/logs/%s", a.addr, checkID))
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -181,10 +183,10 @@ func (a *Agent) getVars(job check.Job, censored bool) map[string]string {
 	checktypeName, checktypeVersion := getChecktypeInfo(job.Image)
 	logLevel := a.config.Check.LogLevel
 
-	var vars map[string]string
+	vars := make(map[string]string)
 	for _, rv := range job.RequiredVars {
 		if censored {
-			vars[rv] = "***"
+			vars[rv] = censoredValue
 		} else {
 			vars[rv] = a.config.Check.Vars[rv]
 		}

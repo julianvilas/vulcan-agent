@@ -8,14 +8,14 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/adevinta/vulcan-agent"
+	agent "github.com/adevinta/vulcan-agent"
 	"github.com/adevinta/vulcan-agent/check"
 	"github.com/adevinta/vulcan-agent/persistence"
 	"github.com/adevinta/vulcan-agent/results"
 	"github.com/adevinta/vulcan-agent/scheduler"
 
-	"github.com/sirupsen/logrus"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 )
 
 // API represents Agent API
@@ -259,6 +259,59 @@ func (a *API) handleCheckUpdate(w http.ResponseWriter, r *http.Request, ps httpr
 	}
 }
 
+func (a *API) handleCheckLogs(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+
+	// Response data returned to the check.
+	var (
+		c          check.State
+		err        error
+		statusCode int
+		job        check.Job
+	)
+	statusCode = http.StatusOK
+
+	defer func() {
+		if err != nil {
+			writeJSONResponse(w, statusCode, CheckResponse{Error: err.Error()})
+			if job.CheckID != "" {
+				c.Status = check.StatusFailed
+				if innerErr := a.storage.SetState(job.CheckID, c); innerErr != nil {
+					a.log.WithError(innerErr).Error("error updating the to check state")
+				}
+				job.Cancel()
+			}
+			return
+		}
+		writeJSONResponse(w, statusCode, CheckResponse{State: c})
+	}()
+
+	job, err = a.storage.Get(ps.ByName("id"))
+	if err != nil {
+		a.log.WithError(err).Error("error retrieving check from internal storage")
+		err = fmt.Errorf("error retrieving check from internal storage: %v", err.Error())
+		statusCode = http.StatusServiceUnavailable
+		return
+	}
+
+	l := a.log.WithFields(logrus.Fields{"check_id": job.CheckID})
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		l.WithError(err).Error("error reading check update request")
+		err = fmt.Errorf("error reading check update request: %v", err.Error())
+		statusCode = http.StatusBadRequest
+		return
+	}
+
+	l.WithFields(logrus.Fields{"body": string(body)}).Debug("faas-logs")
+
+	_, err = a.uploader.UpdateCheckRaw(job.CheckID, job.ScanID, job.ScanStartTime, body)
+	if err != nil {
+		l.WithError(err).Error("error uploading check raw logs to results service")
+		fmt.Errorf("error uploading check raw logs to results service: %v", err.Error())
+	}
+}
+
 func (a *API) handleStats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	writeJSONResponse(w, http.StatusOK, StatsResponse{Stats: a.sched.Stats()})
 	return
@@ -277,6 +330,8 @@ func (a API) ListenAndServe() error {
 	router.GET("/check/:id", a.handleCheck)
 	// Update the current status of a check.
 	router.PATCH("/check/:id", a.handleCheckUpdate)
+	// Receive the logs for the check
+	router.POST("/logs/:id", a.handleCheckLogs)
 
 	// Retrieve stats of the agent
 	router.GET("/stats", a.handleStats)
