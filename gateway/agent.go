@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -97,7 +98,7 @@ func (a *Agent) SetStatus(status string) {
 func buildBody(vars map[string]string) string {
 	var attrs []string
 	for k, v := range vars {
-		attrs = append(attrs, fmt.Sprintf("\"%s\":\"%s\"", k, v))
+		attrs = append(attrs, fmt.Sprintf("\"%s\":%s", k, strconv.Quote(v)))
 	}
 	return fmt.Sprintf("{ %s }", strings.Join(attrs, ","))
 }
