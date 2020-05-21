@@ -295,6 +295,20 @@ func (a *API) handleCheckLogs(w http.ResponseWriter, r *http.Request, ps httprou
 
 	l := a.log.WithFields(logrus.Fields{"check_id": job.CheckID})
 
+	var he string
+	for name, headers := range r.Header {
+		for _, h := range headers {
+			he += fmt.Sprintf("%v: %v,", name, h)
+		}
+	}
+	l.WithFields(logrus.Fields{"header": he}).Debug("faas-logs")
+
+	// Handle the async response from the gateway (i.e. 404 when no function exists.)
+	if r.Header.Get("X-Function-Status") != "200" {
+		l.WithFields(logrus.Fields{"action": "FAILED"}).Debug("faas-logs")
+		err = a.storage.SetState(job.CheckID, check.State{Status: check.StatusFailed})
+	}
+
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		l.WithError(err).Error("error reading check update request")
