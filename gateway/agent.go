@@ -53,9 +53,13 @@ type GatewayRequest struct {
 // NewAgent creates a new Agent.
 // It returns a Agent and any errors encountered while creating it.
 func NewAgent(ctx context.Context, cancel context.CancelFunc, id string, storage check.Storage, l *logrus.Entry, cfg config.Config) (agent.Agent, error) {
-	addr, err := getAgentAddr(cfg.API.Port, cfg.API.IName)
-	if err != nil {
-		return &Agent{}, err
+	addr := cfg.Agent.Address
+	if addr == "" {
+		addr2, err := getAgentAddr(cfg.API.Port, cfg.API.IName)
+		if err != nil {
+			return &Agent{}, err
+		}
+		addr = addr2
 	}
 
 	return &Agent{

@@ -3,6 +3,7 @@ jobqueue_id = "$JOBQUEUE_ID"
 log_level = "$LOG_LEVEL"
 log_file = ""
 timeout = 300
+address = "$AGENT_ADDRESS"
 
 [scheduler]
 concurrent_jobs = $CONCURRENT_JOBS

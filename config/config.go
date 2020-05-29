@@ -25,6 +25,7 @@ type AgentConfig struct {
 	LogLevel   string `toml:"log_level"`
 	LogFile    string `toml:"log_file"`
 	Timeout    int    `toml:"timeout"` // Timeout to start running a check.
+	Address    string `toml:"address"` // Optional to pin an address instead of pod ip
 }
 
 // SchedulerConfig defines the configuration for the scheduler.
