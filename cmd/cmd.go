@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -17,6 +18,7 @@ import (
 	"github.com/adevinta/vulcan-agent/results"
 	"github.com/adevinta/vulcan-agent/scheduler"
 	"github.com/adevinta/vulcan-agent/stream"
+	metrics "github.com/adevinta/vulcan-metrics-client"
 )
 
 var version string
@@ -140,12 +142,30 @@ func MainWithExitCode(factory agent.AgentFactory) int {
 		return 1
 	}
 
+	// Parse DataDog config.
+	// If metrics are enabled, export config as env variables
+	// for metrics client constructor.
+	if cfg.DataDog.Enabled {
+		os.Setenv("DOGSTATSD_ENABLED", "true")
+		statsdAddr := strings.Split(cfg.DataDog.Statsd, ":")
+		if len(statsdAddr) == 2 {
+			os.Setenv("DOGSTATSD_HOST", statsdAddr[0])
+			os.Setenv("DOGSTATSD_PORT", statsdAddr[1])
+		}
+	}
+	metricsClient, err := metrics.NewClient()
+	if err != nil {
+		l.WithError(err).Error("error creating metrics client")
+		return 1
+	}
+
 	schedulerParams := scheduler.Params{
-		Jobs:         &jobs,
-		Agent:        agt,
-		Storage:      storage,
-		QueueManager: sqs,
-		Persister:    persister,
+		Jobs:          &jobs,
+		Agent:         agt,
+		Storage:       storage,
+		QueueManager:  sqs,
+		Persister:     persister,
+		MetricsClient: metricsClient,
 		Config: scheduler.Config{
 			MonitorInterval:   cfg.Scheduler.MonitorInterval,
 			HeartbeatInterval: cfg.Scheduler.HeartbeatInterval,
@@ -212,7 +232,7 @@ func MainWithExitCode(factory agent.AgentFactory) int {
 	}
 	sInterval := time.Duration(cfg.Stream.RetryInterval) * time.Second
 	strm, err := stream.New(
-		agentCtx, agentCancel, agt, storage,
+		agentCtx, agentCancel, agt, storage, metricsClient,
 		cfg.Stream.Endpoint, streamTimeout, l,
 		cfg.Stream.Retries,
 		sInterval,

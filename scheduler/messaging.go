@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/sirupsen/logrus"
 	"github.com/adevinta/vulcan-agent/check"
 	"github.com/adevinta/vulcan-agent/queue"
+	"github.com/sirupsen/logrus"
 )
 
 func (s *Scheduler) processMessage(m queue.Message) {
@@ -101,6 +101,7 @@ func (s *Scheduler) processMessage(m queue.Message) {
 
 	// NOTE: We don't update the status of the check here wait for the SDK to report back to update
 	go s.monitor(job)
+
 	l.Debug("message processed successfully")
 }
 
@@ -114,7 +115,7 @@ func (s *Scheduler) deleteMessage(m queue.Message) {
 	}
 }
 
-// musabortCheck returns true if an error is an httpError and
+// mustAbortCheck returns true if an error is an httpError and
 // the http status is PreconditionFailed.
 func mustAbortCheck(err error) bool {
 	if err == nil {
