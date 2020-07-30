@@ -18,6 +18,7 @@ import (
 
 const (
 	dogStatsDReportPeriod = 5
+	componentTag          = "component:agent"
 )
 
 // Scheduler represents a scheduler
@@ -143,7 +144,7 @@ func (s *Scheduler) Run() {
 				}
 				err = errVal
 			case <-metricsTicker.C:
-				s.pushCheckMetrics()
+				s.pushAggregatedRunningCheckMetrics()
 			}
 		}
 	}
@@ -171,12 +172,13 @@ func (s *Scheduler) Run() {
 	// Wait for all jobs to finish.
 	s.jobs.Wait()
 	// Send last check metrics.
-	s.pushCheckMetrics()
+	s.pushAggregatedRunningCheckMetrics()
 
 	s.log.Warn("agent scheduler finished")
 }
 
-func (s *Scheduler) pushCheckMetrics() {
+func (s *Scheduler) pushAggregatedRunningCheckMetrics() {
+	agentIDTag := fmt.Sprint("agentid:", s.agent.ID())
 	runningChecks, err := s.storage.GetAllByStatus(check.StatusRunning)
 	if err != nil {
 		return
@@ -186,6 +188,6 @@ func (s *Scheduler) pushCheckMetrics() {
 		Name:  "vulcan.scan.check.running",
 		Typ:   metrics.Gauge,
 		Value: float64(len(runningChecks)),
-		Tags:  []string{"component:agent", fmt.Sprint("agentid:", s.agent.ID())},
+		Tags:  []string{componentTag, agentIDTag},
 	})
 }
