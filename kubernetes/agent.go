@@ -8,6 +8,7 @@ import (
 	"net"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"sync"
 
 	agent "github.com/adevinta/vulcan-agent"
@@ -173,7 +174,7 @@ func (a *Agent) Abort(checkID string) error {
 	// This command will send a SIGTERM signal to the entrypoint.
 	// It will wait for the amount of seconds configured and then
 	// forcefully delete the pod.
-	cmd := exec.Command("kubectl", "delete", "pod", "--grace-period", string(timeout), job.CheckID)
+	cmd := exec.Command("kubectl", "delete", "pod", "--grace-period", strconv.Itoa(timeout), job.CheckID)
 
 	return cmd.Run()
 }
