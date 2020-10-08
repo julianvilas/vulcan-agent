@@ -12,17 +12,18 @@ import (
 
 // Constants defining the possible statuses for a check job.
 const (
-	StatusCreated   = "CREATED"
-	StatusQueued    = "QUEUED"
-	StatusAssigned  = "ASSIGNED"
-	StatusRunning   = "RUNNING"
-	StatusTimeout   = "TIMEOUT"
-	StatusAborted   = "ABORTED"
-	StatusPurging   = "PURGING"
-	StatusKilled    = "KILLED"
-	StatusFailed    = "FAILED"
-	StatusFinished  = "FINISHED"
-	StatusMalformed = "MALFORMED"
+	StatusCreated     = "CREATED"
+	StatusQueued      = "QUEUED"
+	StatusAssigned    = "ASSIGNED"
+	StatusRunning     = "RUNNING"
+	StatusTimeout     = "TIMEOUT"
+	StatusAborted     = "ABORTED"
+	StatusPurging     = "PURGING"
+	StatusKilled      = "KILLED"
+	StatusFailed      = "FAILED"
+	StatusFinished    = "FINISHED"
+	StatusMalformed   = "MALFORMED"
+	StatusUnreachable = "UNREACHABLE"
 )
 
 var terminalStatuses = []string{StatusAborted, StatusKilled, StatusFailed, StatusFinished, StatusMalformed, StatusTimeout}

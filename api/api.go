@@ -8,14 +8,14 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/adevinta/vulcan-agent"
+	agent "github.com/adevinta/vulcan-agent"
 	"github.com/adevinta/vulcan-agent/check"
 	"github.com/adevinta/vulcan-agent/persistence"
 	"github.com/adevinta/vulcan-agent/results"
 	"github.com/adevinta/vulcan-agent/scheduler"
 
-	"github.com/sirupsen/logrus"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 )
 
 // API represents Agent API
@@ -237,6 +237,8 @@ func (a *API) handleCheckUpdate(w http.ResponseWriter, r *http.Request, ps httpr
 		l.Info("check reported as aborted")
 	case check.StatusFailed:
 		l.Warn("check reported as failed")
+	case check.StatusUnreachable:
+		l.Warn("check reported as unreachable")
 	default:
 		err = errors.New("error updating check to unknown status")
 		l.WithFields(logrus.Fields{
