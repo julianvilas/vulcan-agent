@@ -26,7 +26,7 @@ const (
 	StatusUnreachable = "UNREACHABLE"
 )
 
-var terminalStatuses = []string{StatusAborted, StatusKilled, StatusFailed, StatusFinished, StatusMalformed, StatusTimeout}
+var terminalStatuses = []string{StatusAborted, StatusKilled, StatusFailed, StatusFinished, StatusMalformed, StatusTimeout, StatusUnreachable}
 
 // JobParams stores the information necessary to create a new check job.
 type JobParams struct {
