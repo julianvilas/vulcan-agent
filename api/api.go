@@ -237,8 +237,8 @@ func (a *API) handleCheckUpdate(w http.ResponseWriter, r *http.Request, ps httpr
 		l.Info("check reported as aborted")
 	case check.StatusFailed:
 		l.Warn("check reported as failed")
-	case check.StatusUnreachable:
-		l.Warn("check reported as unreachable")
+	case check.StatusInconclusive:
+		l.Warn("check reported as inconclusive")
 	default:
 		err = errors.New("error updating check to unknown status")
 		l.WithFields(logrus.Fields{
