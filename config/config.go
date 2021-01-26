@@ -8,16 +8,15 @@ import (
 
 // Config represents the configuration for the agent.
 type Config struct {
-	Agent       AgentConfig       `toml:"agent"`
-	Scheduler   SchedulerConfig   `toml:"scheduler"`
-	Persistence PersistenceConfig `toml:"persistence"`
-	Stream      StreamConfig      `toml:"stream"`
-	Uploader    UploaderConfig    `toml:"uploader"`
-	SQS         SQSConfig         `toml:"sqs"`
-	API         APIConfig         `toml:"api"`
-	Check       CheckConfig       `toml:"check"`
-	Runtime     RuntimeConfig     `toml:"runtime"`
-	DataDog     DatadogConfig     `toml:"datadog"`
+	Agent     AgentConfig     `toml:"agent"`
+	Scheduler SchedulerConfig `toml:"scheduler"`
+	Stream    StreamConfig    `toml:"stream"`
+	Uploader  UploaderConfig  `toml:"uploader"`
+	SQS       SQSConfig       `toml:"sqs"`
+	API       APIConfig       `toml:"api"`
+	Check     CheckConfig     `toml:"check"`
+	Runtime   RuntimeConfig   `toml:"runtime"`
+	DataDog   DatadogConfig   `toml:"datadog"`
 }
 
 // AgentConfig defines the higher level configuration for the agent.
@@ -33,13 +32,6 @@ type SchedulerConfig struct {
 	ConcurrentJobs    int `toml:"concurrent_jobs"`
 	MonitorInterval   int `toml:"monitor_interval"`
 	HeartbeatInterval int `toml:"heartbeat_interval"`
-}
-
-// PersistenceConfig defines the configuration for the persistence service.
-type PersistenceConfig struct {
-	Endpoint string `toml:"endpoint"`
-	Timeout  int    `toml:"timeout"`
-	Retries  int    `toml:"retries"`
 }
 
 // StreamConfig defines the configuration for the event stream.
