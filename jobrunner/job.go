@@ -1,7 +1,6 @@
 package jobrunner
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 )
@@ -46,15 +45,4 @@ func (jp *JobParams) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-// Job stores the information for a running job. It holds its own logger,
-// context and cancel function. The BackendID field contains the backend
-// specific id of the check.
-type Job struct {
-	JobParams
-	log       Logger
-	BackendID string
-	Ctx       context.Context    `json:"-"`
-	Cancel    context.CancelFunc `json:"-"`
 }

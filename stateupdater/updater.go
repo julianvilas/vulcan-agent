@@ -1,5 +1,20 @@
 package stateupdater
 
+const (
+	StatusCreated      = "CREATED"
+	StatusQueued       = "QUEUED"
+	StatusAssigned     = "ASSIGNED"
+	StatusRunning      = "RUNNING"
+	StatusTimeout      = "TIMEOUT"
+	StatusAborted      = "ABORTED"
+	StatusPurging      = "PURGING"
+	StatusKilled       = "KILLED"
+	StatusFailed       = "FAILED"
+	StatusFinished     = "FINISHED"
+	StatusMalformed    = "MALFORMED"
+	StatusInconclusive = "INCONCLUSIVE"
+)
+
 // CheckState defines the all the possible fields of the states
 // sent to the check state queue.
 type CheckState struct {
