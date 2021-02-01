@@ -82,7 +82,7 @@ func (a *API) CheckUpdate(c CheckState) error {
 	}
 	var rlink *string
 	if c.Report != nil {
-		link, err := a.reportUpdater.UpdateCheckReport(c.ID, c.Report.StartTime, *c.Report)
+		link, err := a.stateUpdate.UpdateCheckReport(c.ID, c.Report.StartTime, *c.Report)
 		if err != nil {
 			err = fmt.Errorf("error uploading check report, checkID %s, error: %w", c.ID, err)
 			a.log.Errorf("%+v", err)
