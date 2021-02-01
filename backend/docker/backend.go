@@ -1,21 +1,21 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
-	"regexp"
 	"time"
 
+	"github.com/adevinta/dockerutils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/lestrrat-go/backoff"
-
-	"github.com/adevinta/dockerutils"
 
 	"github.com/adevinta/vulcan-agent/backend"
 	"github.com/adevinta/vulcan-agent/log"
@@ -35,25 +35,34 @@ type RegistryConfig struct {
 	BackoffJitterFactor float64 `toml:"backoff_jitter_factor"`
 }
 
+type DockerClient interface {
+	Create(ctx context.Context, cfg dockerutils.RunConfig, name string) (contID string, err error)
+	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
+	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
+	ContainerWait(ctx context.Context, containerID string) (int64, error)
+	ContainerLogs(ctx context.Context, container string, options types.ContainerLogsOptions) (io.ReadCloser, error)
+	Pull(ctx context.Context, imageRef string) error
+}
+
 type Backend struct {
 	config    RegistryConfig
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
-	cli       *dockerutils.Client
+	cli       DockerClient //DockerClient
 }
 
-func NewBackend(log log.Logger, cfg RegistryConfig, APICfg backend.APIConfig, vars backend.CheckVars) (*Backend, error) {
+func NewBackend(log log.Logger, cfg RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
 	envCli, err := client.NewEnvClient()
 	if err != nil {
 		return &Backend{}, err
 	}
-	var addr string
+	/*var addr string
 	if APICfg.Host != "" {
 		addr = APICfg.Host + APICfg.Port
 	} else {
 		addr, err = getAgentAddr(APICfg.Port, APICfg.IName)
-	}
+	}*/
 
 	cli := dockerutils.NewClient(envCli)
 	if cfg.Server != "" {
@@ -64,7 +73,7 @@ func NewBackend(log log.Logger, cfg RegistryConfig, APICfg backend.APIConfig, va
 	}
 	return &Backend{
 		config:    cfg,
-		agentAddr: addr,
+		agentAddr: agentAddr,
 		log:       log,
 		checkVars: vars,
 		cli:       cli,
@@ -74,10 +83,13 @@ func NewBackend(log log.Logger, cfg RegistryConfig, APICfg backend.APIConfig, va
 // Run starts executing a check as a local container and returns a channel that
 // will contain the result of the execution when it finishes.
 func (b *Backend) Run(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-	err := b.pullWithBackoff(ctx, params.Image)
-	if err != nil {
-		return nil, err
+	if b.config.Server != "" {
+		err := b.pullWithBackoff(ctx, params.Image)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	var res = make(chan backend.RunResult)
 	go b.run(ctx, params, res)
 	return res, nil
@@ -105,11 +117,7 @@ func (b *Backend) run(ctx context.Context, params backend.RunParams, res chan<- 
 		res <- backend.RunResult{Error: err}
 		return
 	}
-	status, error := b.cli.ContainerWait(ctx, contID, container.WaitConditionNotRunning)
-	select {
-	case err = <-error:
-	case <-status:
-	}
+	_, err = b.cli.ContainerWait(ctx, contID)
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.Canceled) {
 		err := fmt.Errorf("error running container for check %s: %w", params.CheckID, err)
 		res <- backend.RunResult{Error: err}
@@ -126,7 +134,7 @@ func (b *Backend) run(ctx context.Context, params backend.RunParams, res chan<- 
 		return
 	}
 	defer r.Close()
-	out, err := ioutil.ReadAll(r)
+	out, err := readContainerLogs(r)
 	if err != nil {
 		err := fmt.Errorf("error reading logs for check %s: %w", params.CheckID, err)
 		res <- backend.RunResult{Error: err}
@@ -158,7 +166,6 @@ func (b Backend) pullWithBackoff(ctx context.Context, image string) error {
 // It will inject the check options and target as environment variables.
 // It will return the generated docker.RunConfig.
 func (b *Backend) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
-	checktypeName, checktypeVersion := getChecktypeInfo(params.Image)
 	b.log.Debugf("fetching check variables from configuration %+v", params.RequiredVars)
 	vars := dockerVars(params.RequiredVars, b.checkVars)
 	return dockerutils.RunConfig{
@@ -167,8 +174,8 @@ func (b *Backend) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
 			Image:    params.Image,
 			Env: append([]string{
 				fmt.Sprintf("%s=%s", backend.CheckIDVar, params.CheckID),
-				fmt.Sprintf("%s=%s", backend.ChecktypeNameVar, checktypeName),
-				fmt.Sprintf("%s=%s", backend.ChecktypeVersionVar, checktypeVersion),
+				fmt.Sprintf("%s=%s", backend.ChecktypeNameVar, params.CheckTypeName),
+				fmt.Sprintf("%s=%s", backend.ChecktypeVersionVar, params.ChecktypeVersion),
 				fmt.Sprintf("%s=%s", backend.CheckTargetVar, params.Target),
 				fmt.Sprintf("%s=%s", backend.CheckAssetTypeVar, params.AssetType),
 				fmt.Sprintf("%s=%s", backend.CheckOptionsVar, params.Options),
@@ -181,16 +188,6 @@ func (b *Backend) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
 		NetConfig:             &network.NetworkingConfig{},
 		ContainerStartOptions: types.ContainerStartOptions{},
 	}
-}
-
-// getChecktypeInfo extracts checktype data from a Docker image URI.
-func getChecktypeInfo(imageURI string) (checktypeName string, checktypeVersion string) {
-	// https://github.com/docker/distribution/blob/master/reference/reference.go#L1-L24
-	re := regexp.MustCompile(`(?P<checktype_name>[a-z0-9]+(?:[-_.][a-z0-9]+)*):(?P<checktype_version>[\w][\w.-]{0,127})`)
-	matches := re.FindStringSubmatch(imageURI)
-	checktypeName = matches[1]
-	checktypeVersion = matches[2]
-	return
 }
 
 // dockerVars assigns the required environment variables in a format supported by Docker.
@@ -238,4 +235,19 @@ func getAgentAddr(port, ifaceName string) (string, error) {
 	}
 
 	return "", errors.New("failed to determine Docker agent IP address")
+}
+
+func readContainerLogs(r io.ReadCloser) ([]byte, error) {
+	bout, berr := &bytes.Buffer{}, &bytes.Buffer{}
+	_, err := stdcopy.StdCopy(bout, berr, r)
+	if err != nil {
+		return nil, err
+	}
+	outContent := bout.Bytes()
+	errContent := berr.Bytes()
+	contents := [][]byte{}
+	contents = append(contents, outContent)
+	contents = append(contents, errContent)
+	out := bytes.Join(contents, []byte("\n"))
+	return out, nil
 }

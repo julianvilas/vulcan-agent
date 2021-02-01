@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -61,6 +62,18 @@ func (c *checkAborter) AbortAll() {
 	})
 }
 
+// Running returns the number the checks that are in a given point of time being
+// tracked by the Aborter component. In other words the number of checks
+// running.
+func (c checkAborter) Runing() int {
+	count := 0
+	c.cancels.Range(func(_, v interface{}) bool {
+		count++
+		return true
+	})
+	return count
+}
+
 // Backend defines the shape of the backend needed by the CheckRunner to execute
 // a Job.
 type Backend interface {
@@ -69,7 +82,7 @@ type Backend interface {
 
 // ChecksLogsStore provides functionality to store the logs of a check.
 type ChecksLogsStore interface {
-	UpdateCheckRaw(checkID, scanID string, scanStartTime time.Time, raw []byte) (string, error)
+	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
 }
 
 type CheckStateUpdater interface {
@@ -100,10 +113,10 @@ type RunnerConfig struct {
 	DefaultTimeout int
 }
 
-// NewRunner creates a Runner initialized with the given log, backend and
+// New creates a Runner initialized with the given log, backend and
 // maximun number of tokens. The maximum number of tokens is the maximun number
 // jobs that the Runner can execute at the same time.
-func NewRunner(logger log.Logger, backend Backend, checkUpdater CheckStateUpdater,
+func New(logger log.Logger, backend Backend, checkUpdater CheckStateUpdater,
 	logsStore ChecksLogsStore, cfg RunnerConfig) *Runner {
 	var tokens = make(chan interface{}, cfg.MaxTokens)
 	for i := 0; i < cfg.MaxTokens; i++ {
@@ -144,6 +157,11 @@ func (cr *Runner) ProcessMessage(msg string, token interface{}) <-chan bool {
 	var processed = make(chan bool, 1)
 	go cr.runJob(msg, token, processed)
 	return processed
+}
+
+// ChecksRunning returns the current number of checks running.
+func (cr *Runner) ChecksRunning() int {
+	return cr.cAborter.Runing()
 }
 
 func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
@@ -208,7 +226,7 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		cr.finishJob(j.CheckID, processed, false, err)
 		return
 	}
-	logsLink, err = cr.LogStore.UpdateCheckRaw(j.CheckID, j.ScanID, startTime, res.Output)
+	logsLink, err = cr.LogStore.UpdateCheckRaw(j.CheckID, startTime, res.Output)
 	if err != nil {
 		err = fmt.Errorf("error storing the logs of the check %w", err)
 		cr.finishJob(j.CheckID, processed, false, err)
@@ -268,4 +286,14 @@ func (cr *Runner) finishJob(checkID string, processed chan<- bool, delete bool, 
 	// It also states if the message related to the job must be deleted or not.
 	processed <- delete
 	close(processed)
+}
+
+// getChecktypeInfo extracts checktype data from a Docker image URI.
+func getChecktypeInfo(imageURI string) (checktypeName string, checktypeVersion string) {
+	// https://github.com/docker/distribution/blob/master/reference/reference.go#L1-L24
+	re := regexp.MustCompile(`(?P<checktype_name>[a-z0-9]+(?:[-_.][a-z0-9]+)*):(?P<checktype_version>[\w][\w.-]{0,127})`)
+	matches := re.FindStringSubmatch(imageURI)
+	checktypeName = matches[1]
+	checktypeVersion = matches[2]
+	return
 }

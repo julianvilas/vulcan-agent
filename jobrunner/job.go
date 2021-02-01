@@ -8,7 +8,6 @@ import (
 // JobParams stores the information necessary to create a new check job.
 type JobParams struct {
 	CheckID       string            `json:"check_id"`      // Required
-	ScanID        string            `json:"scan_id"`       // Required
 	ScanStartTime time.Time         `json:"start_time"`    // Required
 	Image         string            `json:"image"`         // Required
 	Target        string            `json:"target"`        // Required
@@ -39,10 +38,6 @@ func (jp *JobParams) UnmarshalJSON(data []byte) error {
 	}
 
 	jp.ScanStartTime = parsedDate
-
-	if jp.ScanID == "" {
-		jp.ScanID = jp.CheckID
-	}
 
 	return nil
 }

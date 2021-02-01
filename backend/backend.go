@@ -20,13 +20,15 @@ type RunResult struct {
 }
 
 type RunParams struct {
-	CheckID      string            `json:"check_id"`      // Required
-	Image        string            `json:"image"`         // Required
-	Target       string            `json:"target"`        // Required
-	AssetType    string            `json:"assettype"`     // Optional
-	Options      string            `json:"options"`       // Optional
-	RequiredVars []string          `json:"required_vars"` // Optional
-	Metadata     map[string]string `json:"metadata"`      // Optional
+	CheckID          string
+	CheckTypeName    string
+	ChecktypeVersion string
+	Image            string
+	Target           string
+	AssetType        string
+	Options          string
+	RequiredVars     []string
+	Metadata         map[string]string
 }
 
 // CheckVars contains the static checks vars that some checks needs to be
