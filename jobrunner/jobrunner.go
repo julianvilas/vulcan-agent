@@ -74,12 +74,6 @@ func (c checkAborter) Runing() int {
 	return count
 }
 
-// Backend defines the shape of the backend needed by the CheckRunner to execute
-// a Job.
-type Backend interface {
-	Run(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error)
-}
-
 // ChecksLogsStore provides functionality to store the logs of a check.
 type ChecksLogsStore interface {
 	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
@@ -90,7 +84,7 @@ type CheckStateUpdater interface {
 }
 
 type Runner struct {
-	Backend Backend
+	Backend backend.Backend
 	// Tokens contains the currently free tokens of a runner. Any
 	// caller of the Run function must take a token from this channel before
 	// actually calling "Run" in order to ensure there are no more than
@@ -116,7 +110,7 @@ type RunnerConfig struct {
 // New creates a Runner initialized with the given log, backend and
 // maximun number of tokens. The maximum number of tokens is the maximun number
 // jobs that the Runner can execute at the same time.
-func New(logger log.Logger, backend Backend, checkUpdater CheckStateUpdater,
+func New(logger log.Logger, backend backend.Backend, checkUpdater CheckStateUpdater,
 	logsStore ChecksLogsStore, cfg RunnerConfig) *Runner {
 	var tokens = make(chan interface{}, cfg.MaxTokens)
 	for i := 0; i < cfg.MaxTokens; i++ {
@@ -146,6 +140,12 @@ func (cr *Runner) AbortAllChecks(ID string) {
 	cr.cAborter.AbortAll()
 }
 
+// FreeTokens returns a channel that can be used to get a free token to call the
+// ProcessMessage method.
+func (cr *Runner) FreeTokens() chan interface{} {
+	return cr.Tokens
+}
+
 // ProcessMessage executes the job specified in a message given a free token
 // that must be obtained from the Tokens channel. The func does not actually do
 // anything with the token, the parameter is present just to make obvious that
@@ -157,11 +157,6 @@ func (cr *Runner) ProcessMessage(msg string, token interface{}) <-chan bool {
 	var processed = make(chan bool, 1)
 	go cr.runJob(msg, token, processed)
 	return processed
-}
-
-// ChecksRunning returns the current number of checks running.
-func (cr *Runner) ChecksRunning() int {
-	return cr.cAborter.Runing()
 }
 
 func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
@@ -286,6 +281,17 @@ func (cr *Runner) finishJob(checkID string, processed chan<- bool, delete bool, 
 	// It also states if the message related to the job must be deleted or not.
 	processed <- delete
 	close(processed)
+}
+
+// ChecksRunning returns the current number of checks running.
+func (cr *Runner) ChecksRunning() int {
+	return cr.cAborter.Runing()
+}
+
+// Shutdown forces to quit all the internal go routines of the service and stop accepting
+// to process new
+func (cr *Runner) Shutdown() {
+
 }
 
 // getChecktypeInfo extracts checktype data from a Docker image URI.

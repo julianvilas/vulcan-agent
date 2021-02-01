@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultDockerIfaceName = "docker0"
+	abortTimeout           = 5 * time.Second //seconds
 )
 
 // RegistryConfig defines the configuration for the Docker registry.
@@ -37,6 +38,7 @@ type RegistryConfig struct {
 
 type DockerClient interface {
 	Create(ctx context.Context, cfg dockerutils.RunConfig, name string) (contID string, err error)
+	ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error
 	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
 	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
 	ContainerWait(ctx context.Context, containerID string) (int64, error)
@@ -52,7 +54,7 @@ type Backend struct {
 	cli       DockerClient //DockerClient
 }
 
-func NewBackend(log log.Logger, cfg RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
+func New(log log.Logger, cfg RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
 	envCli, err := client.NewEnvClient()
 	if err != nil {
 		return &Backend{}, err
@@ -118,8 +120,15 @@ func (b *Backend) run(ctx context.Context, params backend.RunParams, res chan<- 
 		return
 	}
 	_, err = b.cli.ContainerWait(ctx, contID)
-	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.Canceled) {
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		err := fmt.Errorf("error running container for check %s: %w", params.CheckID, err)
+		res <- backend.RunResult{Error: err}
+		return
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		timeout := abortTimeout
+		b.cli.ContainerStop(context.Background(), contID, &timeout)
 		res <- backend.RunResult{Error: err}
 		return
 	}

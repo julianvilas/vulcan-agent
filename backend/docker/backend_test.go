@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/adevinta/dockerutils"
 	"github.com/docker/docker/client"
@@ -84,6 +85,42 @@ func TestIntegrationBackend_Run(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestIntegrationBackend_RunContainerIsKilled(t *testing.T) {
+	envCli, err := client.NewEnvClient()
+	if err != nil {
+		panic(err)
+	}
+	cli := dockerutils.NewClient(envCli)
+	b := &Backend{
+		agentAddr: "an addr",
+		log:       &log.NullLog{},
+		cli:       cli,
+	}
+	err = buildDockerImage("testdata/Dockerfile", "vulcan-check")
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	params := backend.RunParams{
+		CheckID: "CheckID",
+		Image:   "vulcan-check:latest",
+	}
+	gotChan, err := b.Run(ctx, params)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer removeContainer("CheckID")
+	//cancel()
+	got := <-gotChan
+	gotErr := got.Error
+	if gotErr != nil {
+		t.Errorf("%+v", gotErr)
+		return
 	}
 }
 

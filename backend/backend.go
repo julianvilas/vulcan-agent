@@ -1,5 +1,7 @@
 package backend
 
+import "context"
+
 // Constants defining environment variables that a check expects.
 const (
 	CheckIDVar          = "VULCAN_CHECK_ID"
@@ -41,4 +43,9 @@ type APIConfig struct {
 	Port  string `json:"port"`               // Port where the api for for the check should listen on
 	IName string `json:"iname" toml:"iname"` // Interface name that defines the ip a check should use to reach the agent api.
 	Host  string `json:"host" toml:"host"`   // Hostname a check should use to reach the agent. Overrides the IName config param.
+}
+
+// Backend defines the shape of the backend that executes checks.
+type Backend interface {
+	Run(ctx context.Context, params RunParams) (<-chan RunResult, error)
 }

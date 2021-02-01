@@ -1,2 +1,2 @@
 FROM alpine
-CMD [ "env" ]
+CMD sleep 3
