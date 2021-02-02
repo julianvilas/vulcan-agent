@@ -18,6 +18,7 @@ import (
 	"github.com/lestrrat-go/backoff"
 
 	"github.com/adevinta/vulcan-agent/backend"
+	"github.com/adevinta/vulcan-agent/config"
 	"github.com/adevinta/vulcan-agent/log"
 )
 
@@ -25,16 +26,6 @@ const (
 	defaultDockerIfaceName = "docker0"
 	abortTimeout           = 5 * time.Second //seconds
 )
-
-// RegistryConfig defines the configuration for the Docker registry.
-type RegistryConfig struct {
-	Server              string  `toml:"server"`
-	User                string  `toml:"user"`
-	Pass                string  `toml:"pass"`
-	BackoffInterval     int     `toml:"backoff_interval"`
-	BackoffMaxRetries   int     `toml:"backoff_max_retries"`
-	BackoffJitterFactor float64 `toml:"backoff_jitter_factor"`
-}
 
 type DockerClient interface {
 	Create(ctx context.Context, cfg dockerutils.RunConfig, name string) (contID string, err error)
@@ -47,24 +38,18 @@ type DockerClient interface {
 }
 
 type Backend struct {
-	config    RegistryConfig
+	config    config.RegistryConfig
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
 	cli       DockerClient //DockerClient
 }
 
-func New(log log.Logger, cfg RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
+func New(log log.Logger, cfg config.RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
 	envCli, err := client.NewEnvClient()
 	if err != nil {
 		return &Backend{}, err
 	}
-	/*var addr string
-	if APICfg.Host != "" {
-		addr = APICfg.Host + APICfg.Port
-	} else {
-		addr, err = getAgentAddr(APICfg.Port, APICfg.IName)
-	}*/
 
 	cli := dockerutils.NewClient(envCli)
 	if cfg.Server != "" {

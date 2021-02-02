@@ -2,6 +2,7 @@ package sqs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -19,34 +20,35 @@ import (
 	"github.com/adevinta/vulcan-agent/queue"
 )
 
-const (
-	readMessageWaitTime      = 1  // in seconds.
-	defaultVisibilityTimeout = 30 // in seconds
-	// The processMessageQuantum must always be less than the
-	// defaultVisibilityTimeout by, at least, a few seconds
-	processMessageQuantum = 10 // in seconds
-)
+const MaxQuantumDelta = 3 // in seconds
 
 type Reader struct {
-	sqs           sqsiface.SQSAPI
-	receiveParams sqs.ReceiveMessageInput
-	wg            *sync.WaitGroup
-	log           log.Logger
-	Processor     queue.MessageProcessor
-	Config        config.SQSConfig
-	ForceExit     chan struct{}
+	sync.RWMutex
+	sqs                   sqsiface.SQSAPI
+	readMessageWaitTime   int
+	visibilityTimeout     int
+	processMessageQuantum int
+	receiveParams         sqs.ReceiveMessageInput
+	wg                    *sync.WaitGroup
+	lastMessageReceived   *time.Time
+	log                   log.Logger
+	Processor             queue.MessageProcessor
 }
 
-// New creates a new Reader with the given processor, queueARN and config.
-func New(processor queue.MessageProcessor, queueARN string, config config.SQSConfig) (*Reader, error) {
+// NewReader creates a new Reader with the given processor, queueARN and config.
+func NewReader(cfg config.SQSReader, processor queue.MessageProcessor) (*Reader, error) {
+	delta := cfg.VisibilityTimeout - cfg.ProcessQuantum
+	if delta < MaxQuantumDelta {
+		err := errors.New("difference between visibility timeout and quantum is too short")
+		return nil, err
+	}
 	var consumer *Reader
 	sess, err := session.NewSession()
 	if err != nil {
 		err = fmt.Errorf("error creating AWSSSession, %w", err)
 		return consumer, err
 	}
-
-	arn, err := arn.Parse(queueARN)
+	arn, err := arn.Parse(cfg.ARN)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing SQS queue ARN: %v", err)
 	}
@@ -55,8 +57,8 @@ func New(processor queue.MessageProcessor, queueARN string, config config.SQSCon
 	if arn.Region != "" {
 		awsCfg = awsCfg.WithRegion(arn.Region)
 	}
-	if config.Endpoint != "" {
-		awsCfg = awsCfg.WithEndpoint(config.Endpoint)
+	if cfg.Endpoint != "" {
+		awsCfg = awsCfg.WithEndpoint(cfg.Endpoint)
 	}
 
 	params := &sqs.GetQueueUrlInput{
@@ -75,13 +77,11 @@ func New(processor queue.MessageProcessor, queueARN string, config config.SQSCon
 	receiveParams := sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(*resp.QueueUrl),
 		MaxNumberOfMessages: aws.Int64(1),
-		WaitTimeSeconds:     aws.Int64(readMessageWaitTime),
-		VisibilityTimeout:   aws.Int64(defaultVisibilityTimeout),
+		WaitTimeSeconds:     aws.Int64(int64(cfg.PollingInterval)),
+		VisibilityTimeout:   aws.Int64(int64(cfg.VisibilityTimeout)),
 	}
 	return &Reader{
 		Processor:     processor,
-		Config:        config,
-		ForceExit:     make(chan struct{}),
 		wg:            &sync.WaitGroup{},
 		receiveParams: receiveParams,
 		sqs:           srv,
@@ -89,24 +89,24 @@ func New(processor queue.MessageProcessor, queueARN string, config config.SQSCon
 
 }
 
-// StartReading starts reading messages from the sqs. It reads messages only
-// when there are free tokens in the message processor. It will stop reading
-// from the queue when the passed in context is canceled. The caller can use the
-// returned channel to track when the reader stopped reading from the queue and
-// all the messages it is tracking are finished processing.
+// StartReading starts reading messages from the sqs queue. It reads messages
+// only when there are free tokens in the message processor. It will stop
+// reading from the queue when the passed in context is canceled. The caller can
+// use the returned channel to track when the reader stopped reading from the
+// queue and all the messages it is tracking are finished processing.
 func (r *Reader) StartReading(ctx context.Context) chan error {
 	var done = make(chan error, 1)
-	go r.read(ctx, done, r.ForceExit)
+	go r.read(ctx, done)
 	var finished = make(chan error, 1)
 	go func() {
-		err := <-finished
+		err := <-done
 		r.wg.Wait()
 		finished <- err
 	}()
 	return finished
 }
 
-func (r *Reader) read(ctx context.Context, done chan<- error, stop <-chan struct{}) {
+func (r *Reader) read(ctx context.Context, done chan<- error) {
 	var (
 		err error
 		msg *sqs.Message
@@ -114,8 +114,6 @@ func (r *Reader) read(ctx context.Context, done chan<- error, stop <-chan struct
 loop:
 	for {
 		select {
-		case <-stop:
-			break loop
 		case <-ctx.Done():
 			err = ctx.Err()
 			break loop
@@ -127,11 +125,8 @@ loop:
 			if err != nil {
 				break loop
 			}
-			if msg == nil {
-				continue loop
-			}
 			r.wg.Add(1)
-			go r.processAndTrack(msg, token, stop)
+			go r.processAndTrack(msg, token)
 		}
 	}
 	done <- err
@@ -139,22 +134,29 @@ loop:
 }
 
 func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
-	resp, err := r.sqs.ReceiveMessageWithContext(ctx, &r.receiveParams)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
-			return nil, context.Canceled
+	var msg *sqs.Message
+
+	for {
+		resp, err := r.sqs.ReceiveMessageWithContext(ctx, &r.receiveParams)
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
+				return nil, context.Canceled
+			}
+			return nil, err
 		}
-		return nil, err
+		if len(resp.Messages) > 0 {
+			msg = resp.Messages[0]
+			break
+		}
 	}
-	if len(resp.Messages) == 0 {
-		r.receiveParams.WaitTimeSeconds = aws.Int64(readMessageWaitTime)
-		return nil, nil
-	}
-	// We read only 1 message at time.
-	return resp.Messages[0], nil
+	r.Lock()
+	defer r.Unlock()
+	now := time.Now()
+	r.lastMessageReceived = &now
+	return msg, nil
 }
 
-func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}, stop <-chan struct{}) {
+func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}) {
 	defer r.wg.Done()
 	if msg.Body == nil {
 		r.log.Errorf("unexpected empty body message from sqs")
@@ -168,15 +170,12 @@ func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}, stop <-cha
 		}
 	}
 	processed := r.Processor.ProcessMessage(*msg.Body, token)
-	timer := time.NewTimer(processMessageQuantum)
+	timer := time.NewTimer(time.Duration(r.processMessageQuantum))
 loop:
 	for {
 		select {
-		case <-stop:
-			r.log.Infof("messager reader forced stop")
-			break loop
 		case <-timer.C:
-			extime := int64(defaultVisibilityTimeout)
+			extime := int64(r.visibilityTimeout)
 			input := &sqs.ChangeMessageVisibilityInput{
 				QueueUrl:          r.receiveParams.QueueUrl,
 				ReceiptHandle:     msg.ReceiptHandle,
@@ -188,7 +187,7 @@ loop:
 				break loop
 			}
 			r.log.Debugf("message visibility extended: %s", output.String())
-			timer.Reset(processMessageQuantum)
+			timer.Reset(time.Duration(r.processMessageQuantum))
 		case delete := <-processed:
 			if !delete {
 				break loop
@@ -206,4 +205,12 @@ loop:
 			break loop
 		}
 	}
+}
+
+// LastMessageReceived returns the time where the last message was received by
+// the Reader. If no message was received so far it returns nil.
+func (r *Reader) LastMessageReceived() *time.Time {
+	r.RLock()
+	defer r.RUnlock()
+	return r.lastMessageReceived
 }

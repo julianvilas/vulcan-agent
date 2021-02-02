@@ -12,7 +12,6 @@ import (
 
 	"github.com/adevinta/vulcan-agent/log"
 	report "github.com/adevinta/vulcan-report"
-	"github.com/sirupsen/logrus"
 )
 
 //ReportData represents the payload for report upload requests
@@ -40,11 +39,10 @@ type Uploader struct {
 }
 
 //New returns a new Uploader object pointing to the given endpoint
-func New(endpoint string, timeout time.Duration, log *logrus.Entry) (Uploader, error) {
-	return Uploader{
+func New(endpoint string, timeout time.Duration) (*Uploader, error) {
+	return &Uploader{
 		endpoint: endpoint,
 		timeout:  timeout,
-		log:      log,
 	}, nil
 }
 

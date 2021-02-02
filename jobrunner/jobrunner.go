@@ -74,13 +74,10 @@ func (c checkAborter) Runing() int {
 	return count
 }
 
-// ChecksLogsStore provides functionality to store the logs of a check.
-type ChecksLogsStore interface {
-	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
-}
-
 type CheckStateUpdater interface {
 	UpdateState(stateupdater.CheckState) error
+	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
+	//UpdateCheckReport(checkID string, startTime time.Time, report report.Report) (string, error)
 }
 
 type Runner struct {
@@ -89,15 +86,10 @@ type Runner struct {
 	// caller of the Run function must take a token from this channel before
 	// actually calling "Run" in order to ensure there are no more than
 	// maxTokens jobs running at the same time.
-	Tokens       chan interface{}
-	Logger       log.Logger
-	CheckUpdater CheckStateUpdater
-	LogStore     ChecksLogsStore
-	cAborter     checkAborter
-	// wg is used to allow a caller to wait for all jobs that are running to be
-	// finish.
-	wg             *sync.WaitGroup
-	ctx            context.Context
+	Tokens         chan interface{}
+	Logger         log.Logger
+	CheckUpdater   CheckStateUpdater
+	cAborter       checkAborter
 	defaultTimeout time.Duration
 }
 
@@ -111,7 +103,7 @@ type RunnerConfig struct {
 // maximun number of tokens. The maximum number of tokens is the maximun number
 // jobs that the Runner can execute at the same time.
 func New(logger log.Logger, backend backend.Backend, checkUpdater CheckStateUpdater,
-	logsStore ChecksLogsStore, cfg RunnerConfig) *Runner {
+	cfg RunnerConfig) *Runner {
 	var tokens = make(chan interface{}, cfg.MaxTokens)
 	for i := 0; i < cfg.MaxTokens; i++ {
 		tokens <- token{}
@@ -120,12 +112,10 @@ func New(logger log.Logger, backend backend.Backend, checkUpdater CheckStateUpda
 		Backend:      backend,
 		Tokens:       tokens,
 		CheckUpdater: checkUpdater,
-		LogStore:     logsStore,
 		cAborter: checkAborter{
 			cancels: sync.Map{},
 		},
 		Logger:         logger,
-		wg:             &sync.WaitGroup{},
 		defaultTimeout: time.Duration(cfg.DefaultTimeout * int(time.Second)),
 	}
 }
@@ -153,7 +143,6 @@ func (cr *Runner) FreeTokens() chan interface{} {
 // message if processed the channel returned will indicate if the message must
 // be deleted or not.
 func (cr *Runner) ProcessMessage(msg string, token interface{}) <-chan bool {
-	cr.wg.Add(1)
 	var processed = make(chan bool, 1)
 	go cr.runJob(msg, token, processed)
 	return processed
@@ -221,7 +210,7 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		cr.finishJob(j.CheckID, processed, false, err)
 		return
 	}
-	logsLink, err = cr.LogStore.UpdateCheckRaw(j.CheckID, startTime, res.Output)
+	logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, startTime, res.Output)
 	if err != nil {
 		err = fmt.Errorf("error storing the logs of the check %w", err)
 		cr.finishJob(j.CheckID, processed, false, err)
@@ -263,7 +252,6 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 }
 
 func (cr *Runner) finishJob(checkID string, processed chan<- bool, delete bool, err error) {
-	defer cr.wg.Done()
 	if err != nil && checkID != "" {
 		cr.Logger.Errorf("error %+v running check_id %s", err, checkID)
 	}
@@ -286,12 +274,6 @@ func (cr *Runner) finishJob(checkID string, processed chan<- bool, delete bool, 
 // ChecksRunning returns the current number of checks running.
 func (cr *Runner) ChecksRunning() int {
 	return cr.cAborter.Runing()
-}
-
-// Shutdown forces to quit all the internal go routines of the service and stop accepting
-// to process new
-func (cr *Runner) Shutdown() {
-
 }
 
 // getChecktypeInfo extracts checktype data from a Docker image URI.

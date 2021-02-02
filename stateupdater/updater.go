@@ -1,5 +1,7 @@
 package stateupdater
 
+import "encoding/json"
+
 const (
 	StatusCreated      = "CREATED"
 	StatusQueued       = "QUEUED"
@@ -24,4 +26,24 @@ type CheckState struct {
 	Report   *string  `json:"report,omitempty"`
 	Raw      *string  `json:"raw,omitempty"`
 	Progress *float32 `json:"progress,omitempty"`
+}
+
+type QueueWriter interface {
+	Write(body string) error
+}
+
+type Updater struct {
+	qw QueueWriter
+}
+
+func New(qw QueueWriter) *Updater {
+	return &Updater{qw}
+}
+
+func (u *Updater) UpdateState(s CheckState) error {
+	body, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return u.qw.Write(string(body))
 }

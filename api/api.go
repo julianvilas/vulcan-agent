@@ -32,8 +32,9 @@ type CheckState struct {
 
 // Stats defines the general information that the API provides about the agent.
 type Stats struct {
-	LastMessageReceived time.Time // Timestamp of the last queue message received.
-	ChecksRunning       int
+	// Timestamp of the last queue message received.
+	LastMessageReceived *time.Time `json:"last_message_received,omitempty"`
+	ChecksRunning       int        `json:"checks_running"`
 }
 
 // CheckStateUpdater defines the method needed by the API in order to send check
@@ -47,7 +48,7 @@ type CheckStateUpdater interface {
 // about agent stats that it exposed to the outside world.
 type AgentStats interface {
 	ChecksRunning() int
-	LastMessageReceived() time.Time
+	LastMessageReceived() *time.Time
 }
 
 // API defines the methods of the API that the agent exposes to the outside.
