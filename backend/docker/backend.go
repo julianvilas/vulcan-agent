@@ -52,19 +52,31 @@ func New(log log.Logger, cfg config.RegistryConfig, agentAddr string, vars backe
 	}
 
 	cli := dockerutils.NewClient(envCli)
-	if cfg.Server != "" {
-		err = cli.Login(context.Background(), cfg.Server, cfg.User, cfg.Pass)
+	if cfg.Server == "" {
+		return &Backend{
+			config:    cfg,
+			agentAddr: agentAddr,
+			log:       log,
+			checkVars: vars,
+			cli:       cli,
+		}, nil
+	}
+
+	pass := cfg.Pass
+	user := cfg.User
+	if pass == "" {
+		creds, err := Credentials(cfg.Server)
 		if err != nil {
 			return nil, err
 		}
+		pass = creds.Secret
+		user = creds.Username
 	}
-	return &Backend{
-		config:    cfg,
-		agentAddr: agentAddr,
-		log:       log,
-		checkVars: vars,
-		cli:       cli,
-	}, nil
+	err = cli.Login(context.Background(), cfg.Server, user, pass)
+	if err != nil {
+		return nil, err
+	}
+	return nil, err
 }
 
 // Run starts executing a check as a local container and returns a channel that

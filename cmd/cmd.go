@@ -44,7 +44,7 @@ func MainWithExitCode(bc backendCreator) int {
 	}
 	b, err := bc(l, cfg, cfg.Check.Vars)
 	if err != nil {
-		l.Errorf("error creating the backend to run the checks %w", err)
+		l.Errorf("error creating the backend to run the checks %v", err)
 		return 1
 	}
 
