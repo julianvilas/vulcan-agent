@@ -71,7 +71,7 @@ func MainWithExitCode(bc backendCreator) int {
 		DefaultTimeout: cfg.Agent.Timeout,
 	}
 	jrunner := jobrunner.New(l, b, updater, runnerCfg)
-	qr, err := sqs.NewReader(cfg.SQSReader, jrunner)
+	qr, err := sqs.NewReader(l, cfg.SQSReader, jrunner)
 	stats := struct {
 		*jobrunner.Runner
 		*sqs.Reader

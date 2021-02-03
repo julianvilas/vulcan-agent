@@ -43,7 +43,7 @@ type UploaderConfig struct {
 
 type SQSReader struct {
 	Endpoint          string `toml:"endpoint"`
-	ARN               string `toml:"endpoint"`
+	ARN               string `toml:"arn"`
 	VisibilityTimeout int    `toml:"visibility_timeout"`
 	PollingInterval   int    `toml:"polling_interval"`
 	ProcessQuantum    int    `toml:"process_quantum"`
@@ -51,7 +51,7 @@ type SQSReader struct {
 
 type SQSWriter struct {
 	Endpoint string `toml:"endpoint"`
-	ARN      string `toml:"endpoint"`
+	ARN      string `toml:"arn"`
 }
 
 // APIConfig defines the configuration for the agent API.

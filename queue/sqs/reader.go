@@ -36,7 +36,7 @@ type Reader struct {
 }
 
 // NewReader creates a new Reader with the given processor, queueARN and config.
-func NewReader(cfg config.SQSReader, processor queue.MessageProcessor) (*Reader, error) {
+func NewReader(log log.Logger, cfg config.SQSReader, processor queue.MessageProcessor) (*Reader, error) {
 	delta := cfg.VisibilityTimeout - cfg.ProcessQuantum
 	if delta < MaxQuantumDelta {
 		err := errors.New("difference between visibility timeout and quantum is too short")
@@ -81,10 +81,12 @@ func NewReader(cfg config.SQSReader, processor queue.MessageProcessor) (*Reader,
 		VisibilityTimeout:   aws.Int64(int64(cfg.VisibilityTimeout)),
 	}
 	return &Reader{
-		Processor:     processor,
-		wg:            &sync.WaitGroup{},
-		receiveParams: receiveParams,
-		sqs:           srv,
+		Processor:         processor,
+		visibilityTimeout: cfg.VisibilityTimeout,
+		log:               log,
+		wg:                &sync.WaitGroup{},
+		receiveParams:     receiveParams,
+		sqs:               srv,
 	}, nil
 
 }
@@ -145,6 +147,7 @@ func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
 			return nil, err
 		}
 		if len(resp.Messages) > 0 {
+			r.log.Debugf("read message with id %+v from the sqs queue", *resp.Messages[0].MessageId)
 			msg = resp.Messages[0]
 			break
 		}
@@ -169,26 +172,30 @@ func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}) {
 			r.log.Errorf("ErrorDeletingProcessedMessage", err.Error())
 		}
 	}
+	r.log.Debugf("processing message with id: %s", *msg.MessageId)
 	processed := r.Processor.ProcessMessage(*msg.Body, token)
-	timer := time.NewTimer(time.Duration(r.processMessageQuantum))
+	timer := time.NewTimer(time.Duration(r.processMessageQuantum) * time.Second)
 loop:
 	for {
 		select {
 		case <-timer.C:
 			extime := int64(r.visibilityTimeout)
+			r.log.Debugf("process quatum for message with id: %s elapsed.", *msg.MessageId)
 			input := &sqs.ChangeMessageVisibilityInput{
 				QueueUrl:          r.receiveParams.QueueUrl,
 				ReceiptHandle:     msg.ReceiptHandle,
 				VisibilityTimeout: &extime,
 			}
-			output, err := r.sqs.ChangeMessageVisibility(input)
+			_, err := r.sqs.ChangeMessageVisibility(input)
 			if err != nil {
-				r.log.Errorf("error extending message timeout", err)
+				r.log.Errorf("extending message visibility time for message with id: %s, error: %+v", *msg.MessageId, err)
 				break loop
 			}
-			r.log.Debugf("message visibility extended: %s", output.String())
-			timer.Reset(time.Duration(r.processMessageQuantum))
+			r.log.Debugf("message with id: %s visibility extended.", *msg.MessageId)
+			timer.Reset(time.Duration(r.processMessageQuantum) * time.Second)
 		case delete := <-processed:
+			r.log.Debugf("message with id: %s processed", *msg.MessageId)
+			timer.Stop()
 			if !delete {
 				break loop
 			}
@@ -196,12 +203,13 @@ loop:
 				QueueUrl:      r.receiveParams.QueueUrl,
 				ReceiptHandle: msg.ReceiptHandle,
 			}
-			output, err := r.sqs.DeleteMessage(input)
+			r.log.Debugf("deleting message with id: %s", *msg.MessageId)
+			_, err := r.sqs.DeleteMessage(input)
 			if err != nil {
-				r.log.Errorf("error extending message timeout", err)
+				r.log.Errorf("error deleting message with id: %s, error: %+v", *msg.MessageId, err)
 				break loop
 			}
-			r.log.Debugf("message deleted: %s", output.String())
+			r.log.Debugf("message with id: %s deleted", *msg.MessageId)
 			break loop
 		}
 	}

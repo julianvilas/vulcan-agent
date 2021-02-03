@@ -152,12 +152,13 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 	// Check the token is valid.
 	if _, ok := t.(token); !ok {
 		cr.finishJob("", processed, false, ErrInvalidToken)
+		return
 	}
 	j := &JobParams{}
 	err := j.UnmarshalJSON([]byte(msg))
 	if err != nil {
-		err = fmt.Errorf("error unmarshaling message %+v", msg)
 		cr.finishJob("", processed, true, err)
+		return
 	}
 
 	var timeout time.Duration
