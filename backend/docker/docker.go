@@ -27,7 +27,9 @@ const (
 	abortTimeout           = 5 * time.Second //seconds
 )
 
-type DockerClient interface {
+// Client defines the shape of the docker client component needed by the docker
+// backend in order to be able to run checks.
+type Client interface {
 	Create(ctx context.Context, cfg dockerutils.RunConfig, name string) (contID string, err error)
 	ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error
 	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
@@ -37,29 +39,33 @@ type DockerClient interface {
 	Pull(ctx context.Context, imageRef string) error
 }
 
-type Backend struct {
+// Docker implements a docker backend for runing jobs if the local docker.
+type Docker struct {
 	config    config.RegistryConfig
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
-	cli       DockerClient //DockerClient
+	cli       Client //DockerClient
 }
 
-func New(log log.Logger, cfg config.RegistryConfig, agentAddr string, vars backend.CheckVars) (*Backend, error) {
+// New created a new Docker backend using the given config, agent api addres and
+// CheckVars.
+func New(log log.Logger, cfg config.RegistryConfig, agentAddr string, vars backend.CheckVars) (*Docker, error) {
 	envCli, err := client.NewEnvClient()
 	if err != nil {
-		return &Backend{}, err
+		return &Docker{}, err
 	}
 
 	cli := dockerutils.NewClient(envCli)
+	b := &Docker{
+		config:    cfg,
+		agentAddr: agentAddr,
+		log:       log,
+		checkVars: vars,
+		cli:       cli,
+	}
 	if cfg.Server == "" {
-		return &Backend{
-			config:    cfg,
-			agentAddr: agentAddr,
-			log:       log,
-			checkVars: vars,
-			cli:       cli,
-		}, nil
+		return b, nil
 	}
 
 	pass := cfg.Pass
@@ -76,12 +82,12 @@ func New(log log.Logger, cfg config.RegistryConfig, agentAddr string, vars backe
 	if err != nil {
 		return nil, err
 	}
-	return nil, err
+	return b, nil
 }
 
 // Run starts executing a check as a local container and returns a channel that
 // will contain the result of the execution when it finishes.
-func (b *Backend) Run(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
+func (b *Docker) Run(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
 	if b.config.Server != "" {
 		err := b.pullWithBackoff(ctx, params.Image)
 		if err != nil {
@@ -94,9 +100,9 @@ func (b *Backend) Run(ctx context.Context, params backend.RunParams) (<-chan bac
 	return res, nil
 }
 
-func (b *Backend) run(ctx context.Context, params backend.RunParams, res chan<- backend.RunResult) {
+func (b *Docker) run(ctx context.Context, params backend.RunParams, res chan<- backend.RunResult) {
 	cfg := b.getRunConfig(params)
-	contID, err := b.cli.Create(ctx, cfg, params.CheckID)
+	contID, err := b.cli.Create(ctx, cfg, "")
 	if err != nil {
 		res <- backend.RunResult{Error: err}
 		return
@@ -149,7 +155,7 @@ func (b *Backend) run(ctx context.Context, params backend.RunParams, res chan<- 
 	res <- backend.RunResult{Output: out}
 }
 
-func (b Backend) pullWithBackoff(ctx context.Context, image string) error {
+func (b Docker) pullWithBackoff(ctx context.Context, image string) error {
 	backoffPolicy := backoff.NewExponential(
 		backoff.WithInterval(time.Duration(b.config.BackoffInterval*int(time.Second))),
 		backoff.WithMaxRetries(b.config.BackoffMaxRetries),
@@ -171,13 +177,14 @@ func (b Backend) pullWithBackoff(ctx context.Context, image string) error {
 // getRunConfig will generate a docker.RunConfig for a given job.
 // It will inject the check options and target as environment variables.
 // It will return the generated docker.RunConfig.
-func (b *Backend) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
+func (b *Docker) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
 	b.log.Debugf("fetching check variables from configuration %+v", params.RequiredVars)
 	vars := dockerVars(params.RequiredVars, b.checkVars)
 	return dockerutils.RunConfig{
 		ContainerConfig: &container.Config{
 			Hostname: params.CheckID,
 			Image:    params.Image,
+			Labels:   map[string]string{"CheckID": params.CheckID},
 			Env: append([]string{
 				fmt.Sprintf("%s=%s", backend.CheckIDVar, params.CheckID),
 				fmt.Sprintf("%s=%s", backend.ChecktypeNameVar, params.CheckTypeName),
@@ -199,16 +206,14 @@ func (b *Backend) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
 // dockerVars assigns the required environment variables in a format supported by Docker.
 func dockerVars(requiredVars []string, envVars map[string]string) []string {
 	var dockerVars []string
-
 	for _, requiredVar := range requiredVars {
 		dockerVars = append(dockerVars, fmt.Sprintf("%s=%s", requiredVar, envVars[requiredVar]))
 	}
-
 	return dockerVars
 }
 
-// getAgentAddr returns the current address of the agent API from the Docker network.
-// It will also return any errors encountered while doing so.
+// getAgentAddr returns the current address of the agent API from the Docker
+// network. It will also return any errors encountered while doing so.
 func getAgentAddr(port, ifaceName string) (string, error) {
 	connAddr, err := net.ResolveTCPAddr("tcp", port)
 	if err != nil {

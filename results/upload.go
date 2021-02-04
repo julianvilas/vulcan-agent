@@ -3,8 +3,8 @@ package results
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -56,7 +56,7 @@ func (u *Uploader) UpdateCheckReport(checkID string, scanStartTime time.Time, re
 
 	reportData := ReportData{
 		CheckID:       checkID,
-		ScanID:        "notset",
+		ScanID:        checkID,
 		ScanStartTime: scanStartTime,
 		Report:        string(reportJSON),
 	}
@@ -72,9 +72,10 @@ func (u *Uploader) UpdateCheckReport(checkID string, scanStartTime time.Time, re
 //UpdateCheckRaw ...
 func (u *Uploader) UpdateCheckRaw(checkID string, scanStartTime time.Time, raw []byte) (string, error) {
 	path := path.Join("raw")
+	// We are not going to process scan id's at he agent level.
 	rawData := RawData{
 		CheckID:       checkID,
-		ScanID:        "notset",
+		ScanID:        checkID,
 		ScanStartTime: scanStartTime,
 		Raw:           raw,
 	}
@@ -111,7 +112,8 @@ func (u *Uploader) jsonRequest(route string, reqBody []byte) (string, error) {
 
 	location, exists := res.Header["Location"]
 	if !exists || len(location) <= 0 {
-		return "", errors.New("unexpected response uploading content to the results service")
+		body := u.tryReadBody(res)
+		return "", fmt.Errorf("invalid response uploading content to results,status: %s, response body: %s", res.Status, body)
 	}
 
 	if res.StatusCode == http.StatusCreated && len(location) > 0 {
@@ -119,4 +121,16 @@ func (u *Uploader) jsonRequest(route string, reqBody []byte) (string, error) {
 	}
 
 	return "", fmt.Errorf("request returned %v status", res.Status)
+}
+
+func (u *Uploader) tryReadBody(res *http.Response) string {
+	if res.ContentLength == 0 {
+		return ""
+	}
+	content, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		u.log.Errorf("error reading body from results service %+v", err)
+		return ""
+	}
+	return string(content)
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -95,6 +96,7 @@ func MainWithExitCode(bc backendCreator) int {
 
 	ctxqr, canelqr := context.WithCancel(context.Background())
 	qrdone := qr.StartReading(ctxqr)
+	l.Infof("agent running on address %s", srv.Addr)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
@@ -102,18 +104,18 @@ func MainWithExitCode(bc backendCreator) int {
 	canelqr()
 	// Wait for all the pending jobs to finish.
 	err = <-qrdone
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		l.Errorf("error stopping agent %+v", err)
 	}
 	// Stop listening for api calls.
 	err = srv.Shutdown(context.Background())
 	if err != nil {
-		l.Errorf("error stoping http server %+v", err)
+		l.Errorf("error stoping http server: %+v", err)
 		return 1
 	}
 	err = <-httpDone
-	if err != nil {
-		l.Errorf("error stoping http server %+v", err)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		l.Errorf("http server stopped with error: %+v", err)
 		return 1
 	}
 	return 0

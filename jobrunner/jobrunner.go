@@ -2,6 +2,7 @@ package jobrunner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -155,7 +156,8 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		return
 	}
 	j := &JobParams{}
-	err := j.UnmarshalJSON([]byte(msg))
+	// err := j.UnmarshalJSON([]byte(msg))
+	err := json.Unmarshal([]byte(msg), j)
 	if err != nil {
 		cr.finishJob("", processed, true, err)
 		return
@@ -181,13 +183,16 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		cr.finishJob(j.CheckID, processed, true, err)
 		return
 	}
+	ctName, ctVersion := getChecktypeInfo(j.Image)
 	runParams := backend.RunParams{
-		CheckID:      j.CheckID,
-		Target:       j.Target,
-		Image:        j.Image,
-		AssetType:    j.AssetType,
-		Options:      j.Options,
-		RequiredVars: j.RequiredVars,
+		CheckID:          j.CheckID,
+		Target:           j.Target,
+		Image:            j.Image,
+		AssetType:        j.AssetType,
+		Options:          j.Options,
+		RequiredVars:     j.RequiredVars,
+		CheckTypeName:    ctName,
+		ChecktypeVersion: ctVersion,
 	}
 	finished, err := cr.Backend.Run(ctx, runParams)
 	if err != nil {

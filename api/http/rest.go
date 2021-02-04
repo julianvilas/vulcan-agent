@@ -72,8 +72,8 @@ func (re *REST) handleCheckUpdate(w http.ResponseWriter, r *http.Request, ps htt
 	state.ID = id
 	err = re.api.CheckUpdate(*state)
 	if err != nil {
-		err = fmt.Errorf("error updating check state: %v", err.Error())
-		re.log.Errorf("error: %+v", err)
+		err = fmt.Errorf("updating check state, %v", err.Error())
+		re.log.Errorf(err.Error())
 		writeJSONResponse(w, http.StatusInternalServerError, ErrorResponse{err.Error()})
 		return
 	}

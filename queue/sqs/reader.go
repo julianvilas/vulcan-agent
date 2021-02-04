@@ -20,14 +20,16 @@ import (
 	"github.com/adevinta/vulcan-agent/queue"
 )
 
-const MaxQuantumDelta = 3 // in seconds
+const (
+	MaxQuantumDelta = 3 // in seconds
+)
 
 type Reader struct {
 	sync.RWMutex
 	sqs                   sqsiface.SQSAPI
-	readMessageWaitTime   int
 	visibilityTimeout     int
 	processMessageQuantum int
+	poolingInterval       int
 	receiveParams         sqs.ReceiveMessageInput
 	wg                    *sync.WaitGroup
 	lastMessageReceived   *time.Time
@@ -77,16 +79,18 @@ func NewReader(log log.Logger, cfg config.SQSReader, processor queue.MessageProc
 	receiveParams := sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(*resp.QueueUrl),
 		MaxNumberOfMessages: aws.Int64(1),
-		WaitTimeSeconds:     aws.Int64(int64(cfg.PollingInterval)),
+		WaitTimeSeconds:     aws.Int64(0),
 		VisibilityTimeout:   aws.Int64(int64(cfg.VisibilityTimeout)),
 	}
 	return &Reader{
-		Processor:         processor,
-		visibilityTimeout: cfg.VisibilityTimeout,
-		log:               log,
-		wg:                &sync.WaitGroup{},
-		receiveParams:     receiveParams,
-		sqs:               srv,
+		Processor:             processor,
+		visibilityTimeout:     cfg.VisibilityTimeout,
+		processMessageQuantum: cfg.ProcessQuantum,
+		poolingInterval:       cfg.PollingInterval,
+		log:                   log,
+		wg:                    &sync.WaitGroup{},
+		receiveParams:         receiveParams,
+		sqs:                   srv,
 	}, nil
 
 }
@@ -137,8 +141,9 @@ loop:
 
 func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
 	var msg *sqs.Message
-
+	waitTime := int64(0)
 	for {
+		r.receiveParams.WaitTimeSeconds = &waitTime
 		resp, err := r.sqs.ReceiveMessageWithContext(ctx, &r.receiveParams)
 		if err != nil {
 			if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
@@ -151,6 +156,7 @@ func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
 			msg = resp.Messages[0]
 			break
 		}
+		waitTime = int64(r.poolingInterval)
 	}
 	r.Lock()
 	defer r.Unlock()

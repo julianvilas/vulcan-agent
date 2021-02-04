@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,22 +10,25 @@ import (
 	"time"
 
 	"github.com/adevinta/dockerutils"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
 
 	"github.com/adevinta/vulcan-agent/backend"
 	"github.com/adevinta/vulcan-agent/log"
 )
 
-func TestIntegrationBackend_Run(t *testing.T) {
+func TestIntegrationDockerRun(t *testing.T) {
 	type args struct {
 		ctx    context.Context
 		params backend.RunParams
 	}
 	tests := []struct {
 		name       string
-		setup      func() *Backend
-		tearDown   func(b *Backend)
+		setup      func() *Docker
+		tearDown   func(b *Docker)
 		args       args
 		want       backend.RunResult
 		wantRunErr error
@@ -32,32 +36,45 @@ func TestIntegrationBackend_Run(t *testing.T) {
 	}{
 		{
 			name: "ExecutesADockerContainer",
-			setup: func() *Backend {
+			setup: func() *Docker {
 				envCli, err := client.NewEnvClient()
 				if err != nil {
 					panic(err)
 				}
 				cli := dockerutils.NewClient(envCli)
-				b := &Backend{
+				b := &Docker{
 					agentAddr: "an addr",
 					log:       &log.NullLog{},
 					cli:       cli,
+					checkVars: map[string]string{"var1": "value_var_1"},
 				}
-				err = buildDockerImage("testdata/Dockerfile", "vulcan-check")
+				err = buildDockerImage("testdata/DockerfileEnv", "vulcan-check")
 				if err != nil {
 					panic(err)
 				}
 				return b
 			},
-			tearDown: func(b *Backend) {
+			tearDown: func(b *Docker) {
 				removeContainer("CheckID")
 			},
 			args: args{
 				context.Background(),
 				backend.RunParams{
-					CheckID: "CheckID",
-					Image:   "vulcan-check:latest",
+					CheckID:          "CheckID",
+					Image:            "vulcan-check:latest",
+					CheckTypeName:    "type-name",
+					ChecktypeVersion: "1",
+					Target:           "example.com",
+					AssetType:        "hostname",
+					Options:          "{'debug'=true}",
+					RequiredVars:     []string{"var1"},
 				},
+			},
+			want: backend.RunResult{
+				Output: []byte("VULCAN_CHECK_OPTIONS={'debug'=true}\nVULCAN_CHECKTYPE_VERSION=1" +
+					"\nVULCAN_CHECK_ASSET_TYPE=hostname\nVULCAN_CHECK_ID=CheckID\n" +
+					"VULCAN_CHECKTYPE_NAME=type-name\nVULCAN_CHECK_TARGET=example.com\n" +
+					"VULCAN_AGENT_ADDRESS=an addr\n\n"),
 			},
 		},
 	}
@@ -71,7 +88,7 @@ func TestIntegrationBackend_Run(t *testing.T) {
 			}()
 			gotChan, err := b.Run(tt.args.ctx, tt.args.params)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Backend.Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Docker.Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			got := <-gotChan
@@ -88,25 +105,26 @@ func TestIntegrationBackend_Run(t *testing.T) {
 	}
 }
 
-func TestIntegrationBackend_RunContainerIsKilled(t *testing.T) {
+func TestIntegrationDockerRunKillContainer(t *testing.T) {
 	envCli, err := client.NewEnvClient()
 	if err != nil {
 		panic(err)
 	}
 	cli := dockerutils.NewClient(envCli)
-	b := &Backend{
+	b := &Docker{
 		agentAddr: "an addr",
 		log:       &log.NullLog{},
 		cli:       cli,
 	}
-	err = buildDockerImage("testdata/Dockerfile", "vulcan-check")
+	err = buildDockerImage("testdata/DockerfileSleep", "vulcan-check")
 	if err != nil {
 		panic(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	id := uuid.New()
 	params := backend.RunParams{
-		CheckID: "CheckID",
+		CheckID: id.String(),
 		Image:   "vulcan-check:latest",
 	}
 	gotChan, err := b.Run(ctx, params)
@@ -114,13 +132,30 @@ func TestIntegrationBackend_RunContainerIsKilled(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	defer removeContainer("CheckID")
-	//cancel()
+	go func() {
+		time.Sleep(1 * time.Second)
+		cancel()
+	}()
 	got := <-gotChan
 	gotErr := got.Error
-	if gotErr != nil {
+	if gotErr != context.Canceled {
 		t.Errorf("%+v", gotErr)
 		return
+	}
+	// Check the container is killed.
+	args := fmt.Sprintf("label=CheckID=%s", id.String())
+	filter, err := filters.ParseFlag(args, filters.NewArgs())
+	if err != nil {
+		t.Errorf("error listing running containers: %+v", err)
+		return
+	}
+	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{Filters: filter})
+	if err != nil {
+		t.Errorf("error listing running containers: %+v", err)
+		return
+	}
+	if len(containers) > 0 {
+		t.Errorf("container with id %s was not killed", id.String())
 	}
 }
 

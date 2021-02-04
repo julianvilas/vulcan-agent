@@ -19,10 +19,10 @@ func main() {
 	// while still executing deferred functions as expected.
 	// Using os.Exit inside the main function is not an option:
 	// https://golang.org/pkg/os/#Exit
-	os.Exit(cmd.MainWithExitCode(dockerBackendCreator))
+	os.Exit(cmd.MainWithExitCode(buildDockerBackend))
 }
 
-func dockerBackendCreator(l log.Logger, cfg config.Config, vars backend.CheckVars) (backend.Backend, error) {
+func buildDockerBackend(l log.Logger, cfg config.Config, vars backend.CheckVars) (backend.Backend, error) {
 	var (
 		addr string
 		err  error

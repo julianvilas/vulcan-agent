@@ -1,2 +1,2 @@
 FROM alpine
-CMD sleep 3
+CMD sleep 5
