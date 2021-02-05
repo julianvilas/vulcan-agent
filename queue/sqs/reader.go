@@ -25,7 +25,7 @@ const (
 )
 
 type Reader struct {
-	sync.RWMutex
+	*sync.RWMutex
 	sqs                   sqsiface.SQSAPI
 	visibilityTimeout     int
 	processMessageQuantum int
@@ -83,6 +83,7 @@ func NewReader(log log.Logger, cfg config.SQSReader, processor queue.MessageProc
 		VisibilityTimeout:   aws.Int64(int64(cfg.VisibilityTimeout)),
 	}
 	return &Reader{
+		RWMutex:               &sync.RWMutex{},
 		Processor:             processor,
 		visibilityTimeout:     cfg.VisibilityTimeout,
 		processMessageQuantum: cfg.ProcessQuantum,
