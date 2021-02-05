@@ -66,7 +66,7 @@ func (c *checkAborter) AbortAll() {
 // Running returns the number the checks that are in a given point of time being
 // tracked by the Aborter component. In other words the number of checks
 // running.
-func (c checkAborter) Runing() int {
+func (c *checkAborter) Runing() int {
 	count := 0
 	c.cancels.Range(func(_, v interface{}) bool {
 		count++
@@ -90,7 +90,7 @@ type Runner struct {
 	Tokens         chan interface{}
 	Logger         log.Logger
 	CheckUpdater   CheckStateUpdater
-	cAborter       checkAborter
+	cAborter       *checkAborter
 	defaultTimeout time.Duration
 }
 
@@ -113,7 +113,7 @@ func New(logger log.Logger, backend backend.Backend, checkUpdater CheckStateUpda
 		Backend:      backend,
 		Tokens:       tokens,
 		CheckUpdater: checkUpdater,
-		cAborter: checkAborter{
+		cAborter: &checkAborter{
 			cancels: sync.Map{},
 		},
 		Logger:         logger,
@@ -170,7 +170,6 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		timeout = cr.defaultTimeout
 	}
 
-	startTime := time.Now()
 	// Create the context under which the backend will execute the check. The
 	// context will be cancelled either because the function cancel will be
 	// called by the aborter or because the timeout for the check has elapsed.
@@ -210,13 +209,13 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 	// When the check is finished it can not be aborted anymore
 	// so we remove it from aborter.
 	cr.cAborter.Remove(j.CheckID)
-	// Check if the backend returned any error running the check.
-	err = res.Error
-	if err != nil {
-		cr.finishJob(j.CheckID, processed, false, err)
+	// Check if the backend returned any not expected error while runing the check.
+	execErr := res.Error
+	if execErr != nil && !errors.Is(execErr, context.DeadlineExceeded) && !errors.Is(execErr, context.Canceled) {
+		cr.finishJob(j.CheckID, processed, false, execErr)
 		return
 	}
-	logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, startTime, res.Output)
+	logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, j.StartTime, res.Output)
 	if err != nil {
 		err = fmt.Errorf("error storing the logs of the check %w", err)
 		cr.finishJob(j.CheckID, processed, false, err)
@@ -236,10 +235,10 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 	// when the check is canceled or timed. That's because, in those cases, it
 	// is possible for the check to not have had time to set the state itself.
 	var status string
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if errors.Is(execErr, context.DeadlineExceeded) {
 		status = stateupdater.StatusTimeout
 	}
-	if errors.Is(ctx.Err(), context.Canceled) {
+	if errors.Is(execErr, context.Canceled) {
 		status = stateupdater.StatusAborted
 	}
 	// If the check was not canceled or aborted we just finish its execution.
