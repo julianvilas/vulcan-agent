@@ -46,7 +46,7 @@ func TestIntegrationDockerRun(t *testing.T) {
 					agentAddr: "an addr",
 					log:       &log.NullLog{},
 					cli:       cli,
-					checkVars: map[string]string{"var1": "value_var_1"},
+					checkVars: map[string]string{"VULCAN_CHECK_VAR": "value_var_1"},
 				}
 				err = buildDockerImage("testdata/DockerfileEnv", "vulcan-check")
 				if err != nil {
@@ -67,14 +67,14 @@ func TestIntegrationDockerRun(t *testing.T) {
 					Target:           "example.com",
 					AssetType:        "hostname",
 					Options:          "{'debug'=true}",
-					RequiredVars:     []string{"var1"},
+					RequiredVars:     []string{"VULCAN_CHECK_VAR"},
 				},
 			},
 			want: backend.RunResult{
 				Output: []byte("VULCAN_CHECK_OPTIONS={'debug'=true}\nVULCAN_CHECKTYPE_VERSION=1" +
 					"\nVULCAN_CHECK_ASSET_TYPE=hostname\nVULCAN_CHECK_ID=CheckID\n" +
 					"VULCAN_CHECKTYPE_NAME=type-name\nVULCAN_CHECK_TARGET=example.com\n" +
-					"VULCAN_AGENT_ADDRESS=an addr\n\n"),
+					"VULCAN_AGENT_ADDRESS=an addr\nVULCAN_CHECK_VAR=value_var_1\n\n"),
 			},
 		},
 	}
@@ -110,6 +110,7 @@ func TestIntegrationDockerRunKillContainer(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+
 	cli := dockerutils.NewClient(envCli)
 	b := &Docker{
 		agentAddr: "an addr",
@@ -142,6 +143,63 @@ func TestIntegrationDockerRunKillContainer(t *testing.T) {
 		t.Errorf("%+v", gotErr)
 		return
 	}
+	// Check the container is killed.
+	args := fmt.Sprintf("label=CheckID=%s", id.String())
+	filter, err := filters.ParseFlag(args, filters.NewArgs())
+	if err != nil {
+		t.Errorf("error listing running containers: %+v", err)
+		return
+	}
+	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{Filters: filter})
+	if err != nil {
+		t.Errorf("error listing running containers: %+v", err)
+		return
+	}
+	if len(containers) > 0 {
+		t.Errorf("container with id %s was not killed", id.String())
+	}
+}
+
+func TestIntegrationDockerRunCancelGracefully(t *testing.T) {
+	envCli, err := client.NewEnvClient()
+	if err != nil {
+		panic(err)
+	}
+	cli := dockerutils.NewClient(envCli)
+	b := &Docker{
+		agentAddr: "an addr",
+		log:       &log.NullLog{},
+		cli:       cli,
+	}
+	err = buildDockerImage("testdata/DockerfileSleepEcho", "vulcan-check")
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	id := uuid.New()
+	params := backend.RunParams{
+		CheckID: id.String(),
+		Image:   "vulcan-check:latest",
+	}
+	gotChan, err := b.Run(ctx, params)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	got := <-gotChan
+	gotErr := got.Error
+	if gotErr != context.DeadlineExceeded {
+		t.Errorf("got unexpected error %+v", gotErr)
+		return
+	}
+
+	diff := cmp.Diff(string(got.Output), "ok\n\n")
+	if diff != "" {
+		t.Errorf("got output != want output, diff %+s", diff)
+		return
+	}
+
 	// Check the container is killed.
 	args := fmt.Sprintf("label=CheckID=%s", id.String())
 	filter, err := filters.ParseFlag(args, filters.NewArgs())

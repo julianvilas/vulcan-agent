@@ -128,31 +128,39 @@ func (b *Docker) run(ctx context.Context, params backend.RunParams, res chan<- b
 		res <- backend.RunResult{Error: err}
 		return
 	}
-
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// ContainerStop will send a SIGTERM signal to the entrypoint. It will
+		// wait for the amount of seconds configured and then send a SIGKILL
+		// signal that will terminate the process. We use an empty context since
+		// the stop operation is called when the ctx of the check is already
+		// finish because a time out.
 		timeout := abortTimeout
 		b.cli.ContainerStop(context.Background(), contID, &timeout)
-		res <- backend.RunResult{Error: err}
-		return
 	}
+	out, logErr := b.getContainerlogs(contID)
+	if logErr != nil {
+		b.log.Errorf("getting logs for the check %s, %+v", params.CheckID, err)
+	}
+	res <- backend.RunResult{Output: out, Error: err}
+}
+
+func (b Docker) getContainerlogs(ID string) ([]byte, error) {
 	logOpts := types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	}
-	r, err := b.cli.ContainerLogs(ctx, contID, logOpts)
+	r, err := b.cli.ContainerLogs(context.Background(), ID, logOpts)
 	if err != nil {
-		err := fmt.Errorf("error getting logs for check %s: %w", params.CheckID, err)
-		res <- backend.RunResult{Error: err}
-		return
+		err = fmt.Errorf("error getting logs for container %s: %w", ID, err)
+		return nil, err
 	}
 	defer r.Close()
 	out, err := readContainerLogs(r)
 	if err != nil {
-		err := fmt.Errorf("error reading logs for check %s: %w", params.CheckID, err)
-		res <- backend.RunResult{Error: err}
-		return
+		err := fmt.Errorf("error reading logs for check %s: %w", ID, err)
+		return nil, err
 	}
-	res <- backend.RunResult{Output: out}
+	return out, nil
 }
 
 func (b Docker) pullWithBackoff(ctx context.Context, image string) error {
