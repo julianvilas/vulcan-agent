@@ -147,6 +147,9 @@ func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
 		r.receiveParams.WaitTimeSeconds = &waitTime
 		resp, err := r.sqs.ReceiveMessageWithContext(ctx, &r.receiveParams)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			}
 			if aerr, ok := err.(awserr.Error); ok && aerr.Code() == request.CanceledErrorCode {
 				return nil, context.Canceled
 			}
