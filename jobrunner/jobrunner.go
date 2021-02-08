@@ -155,7 +155,7 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 		cr.finishJob("", processed, false, ErrInvalidToken)
 		return
 	}
-	j := &JobParams{}
+	j := &Job{}
 	// err := j.UnmarshalJSON([]byte(msg))
 	err := json.Unmarshal([]byte(msg), j)
 	if err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/adevinta/vulcan-agent/config"
 	"github.com/adevinta/vulcan-agent/jobrunner"
 	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/queue"
 	"github.com/adevinta/vulcan-agent/queue/sqs"
 	"github.com/adevinta/vulcan-agent/results"
 	"github.com/adevinta/vulcan-agent/stateupdater"
@@ -94,14 +95,33 @@ func MainWithExitCode(bc backendCreator) int {
 		close(httpDone)
 	}()
 
-	ctxqr, canelqr := context.WithCancel(context.Background())
+	ctxqr, cancelqr := context.WithCancel(context.Background())
 	qrdone := qr.StartReading(ctxqr)
+
+	maxTimeNoMsg := time.Duration(cfg.Agent.MaxNoMsgsInterval) * time.Second
+	qStopper := queue.ReaderStopper{
+		R:       qr,
+		MaxTime: maxTimeNoMsg,
+	}
+
+	stopperDone := qStopper.Track(ctxqr)
 	l.Infof("agent running on address %s", srv.Addr)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-	// Signal the sqs queue reader to stop reading messages from the queue.
-	canelqr()
+
+	select {
+	case <-sig:
+		// Signal the sqs queue reader to stop reading messages from the queue.
+		cancelqr()
+	case err = <-stopperDone:
+		cancelqr()
+	}
+
+	// Wait fot the queue stopper to finish.
+	err = <-stopperDone
+	if err != nil && !errors.Is(err, context.Canceled) {
+		l.Errorf("error stopping the reader tracker %+v", err)
+	}
 	// Wait for all the pending jobs to finish.
 	err = <-qrdone
 	if err != nil && !errors.Is(err, context.Canceled) {

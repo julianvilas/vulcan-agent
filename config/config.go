@@ -25,6 +25,9 @@ type AgentConfig struct {
 	LogFile        string `toml:"log_file"`
 	Timeout        int    `toml:"timeout"` // Timeout to start running a check.
 	ConcurrentJobs int    `toml:"concurrent_jobs"`
+	// MaxMsgsInterval defines the maximun time, in seconds, the agent can
+	// running without reading any message from the queue.
+	MaxNoMsgsInterval int `toml:"max_no_msgs_interval"`
 }
 
 // StreamConfig defines the configuration for the event stream.

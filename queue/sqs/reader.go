@@ -32,7 +32,7 @@ type Reader struct {
 	poolingInterval       int
 	receiveParams         sqs.ReceiveMessageInput
 	wg                    *sync.WaitGroup
-	lastMessageReceived   *time.Time
+	lastMessageReceived   time.Time
 	log                   log.Logger
 	Processor             queue.MessageProcessor
 }
@@ -92,6 +92,7 @@ func NewReader(log log.Logger, cfg config.SQSReader, processor queue.MessageProc
 		wg:                    &sync.WaitGroup{},
 		receiveParams:         receiveParams,
 		sqs:                   srv,
+		lastMessageReceived:   time.Now(),
 	}, nil
 
 }
@@ -101,7 +102,7 @@ func NewReader(log log.Logger, cfg config.SQSReader, processor queue.MessageProc
 // reading from the queue when the passed in context is canceled. The caller can
 // use the returned channel to track when the reader stopped reading from the
 // queue and all the messages it is tracking are finished processing.
-func (r *Reader) StartReading(ctx context.Context) chan error {
+func (r *Reader) StartReading(ctx context.Context) <-chan error {
 	var done = make(chan error, 1)
 	go r.read(ctx, done)
 	var finished = make(chan error, 1)
@@ -165,7 +166,7 @@ func (r *Reader) readMessage(ctx context.Context) (*sqs.Message, error) {
 	r.Lock()
 	defer r.Unlock()
 	now := time.Now()
-	r.lastMessageReceived = &now
+	r.lastMessageReceived = now
 	return msg, nil
 }
 
@@ -227,7 +228,7 @@ loop:
 
 // LastMessageReceived returns the time where the last message was received by
 // the Reader. If no message was received so far it returns nil.
-func (r *Reader) LastMessageReceived() *time.Time {
+func (r *Reader) LastMessageReceived() time.Time {
 	r.RLock()
 	defer r.RUnlock()
 	return r.lastMessageReceived

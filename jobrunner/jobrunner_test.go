@@ -19,7 +19,7 @@ import (
 var (
 	errUnexpectedTest = errors.New("unexpected")
 
-	runJobFixture1 = JobParams{
+	runJobFixture1 = Job{
 		CheckID:      uuid.NewString(),
 		StartTime:    time.Now(),
 		Image:        "job1:latest",
@@ -361,7 +361,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 	}
 }
 
-func mustMarshal(params JobParams) []byte {
+func mustMarshal(params Job) []byte {
 	res, err := json.Marshal(params)
 	if err != nil {
 		panic(err)
