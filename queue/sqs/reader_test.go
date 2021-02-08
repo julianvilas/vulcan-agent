@@ -200,6 +200,91 @@ func TestReader_StartReading(t *testing.T) {
 				return diff
 			},
 		},
+		{
+			name: "DoesNotReadMoreThanFreeTokens",
+			fields: fields{
+				RWMutex: &sync.RWMutex{},
+				sqs: &InMemSQS{
+					Mutex: &sync.Mutex{},
+					Msgs: []sqs.ReceiveMessageOutput{
+						{
+							Messages: []*sqs.Message{
+								{
+									Body:          strToPtr("msg2"),
+									MessageId:     strToPtr("msg2"),
+									ReceiptHandle: strToPtr("msg2"),
+								},
+							},
+						},
+						{
+							Messages: []*sqs.Message{
+								{
+									Body:          strToPtr("msg1"),
+									MessageId:     strToPtr("msg1"),
+									ReceiptHandle: strToPtr("msg1"),
+								},
+							},
+						},
+					},
+				},
+				visibilityTimeout:     60,
+				processMessageQuantum: 2,
+				poolingInterval:       3,
+				receiveParams:         sqs.ReceiveMessageInput{},
+				log:                   &log.NullLog{},
+				wg:                    &sync.WaitGroup{},
+				Processor: &messageProcessorMock{
+					freeTokens: func() chan interface{} {
+						res := make(chan interface{}, 10)
+						res <- struct{}{}
+						return res
+					},
+					processMessage: func(msg string, token interface{}) <-chan bool {
+						c := make(chan bool, 1)
+						go func() {
+							time.Sleep(3 * time.Second)
+							c <- true
+						}()
+						return c
+					},
+				},
+			},
+			runCtxProvider: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(6 * time.Second)
+					cancel()
+				}()
+				return ctx
+			},
+			want: context.Canceled,
+			stateChecker: func(r *Reader) string {
+				gotSqs := r.sqs.(*InMemSQS)
+				wantSqs := InMemSQS{
+					NReceivedMsgCalled: 1,
+					InflightMsg:        []sqs.ReceiveMessageOutput{},
+					Msgs: []sqs.ReceiveMessageOutput{
+						{
+							Messages: []*sqs.Message{
+								{
+									Body:          strToPtr("msg2"),
+									MessageId:     strToPtr("msg2"),
+									ReceiptHandle: strToPtr("msg2"),
+								},
+							},
+						},
+					},
+					CVisiMsgs: []sqs.ChangeMessageVisibilityInput{
+						{
+							ReceiptHandle:     strToPtr("msg1"),
+							VisibilityTimeout: intToPtr(60),
+						},
+					},
+				}
+				diff := cmp.Diff(wantSqs, *gotSqs, cmpopts.IgnoreFields(InMemSQS{}, "Mutex"))
+				return diff
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

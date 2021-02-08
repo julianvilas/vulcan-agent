@@ -72,9 +72,6 @@ func (rs ReaderStopper) Track(ctx context.Context) <-chan error {
 				break loop
 			}
 		}
-		if !pollTimer.Stop() {
-			<-pollTimer.C
-		}
 	}()
 	return done
 }

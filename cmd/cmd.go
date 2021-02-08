@@ -114,6 +114,7 @@ func MainWithExitCode(bc backendCreator) int {
 		// Signal the sqs queue reader to stop reading messages from the queue.
 		cancelqr()
 	case err = <-stopperDone:
+		l.Infof("shutting down agent because more than %+v seconds elapsed without messages read", maxTimeNoMsg.Seconds())
 		cancelqr()
 	}
 
