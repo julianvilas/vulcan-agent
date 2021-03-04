@@ -8,43 +8,32 @@ import (
 
 // Config represents the configuration for the agent.
 type Config struct {
-	Agent       AgentConfig       `toml:"agent"`
-	Scheduler   SchedulerConfig   `toml:"scheduler"`
-	Persistence PersistenceConfig `toml:"persistence"`
-	Stream      StreamConfig      `toml:"stream"`
-	Uploader    UploaderConfig    `toml:"uploader"`
-	SQS         SQSConfig         `toml:"sqs"`
-	API         APIConfig         `toml:"api"`
-	Check       CheckConfig       `toml:"check"`
-	Runtime     RuntimeConfig     `toml:"runtime"`
-	DataDog     DatadogConfig     `toml:"datadog"`
+	Agent     AgentConfig    `toml:"agent"`
+	Stream    StreamConfig   `toml:"stream"`
+	Uploader  UploaderConfig `toml:"uploader"`
+	SQSReader SQSReader      `toml:"sqs_reader"`
+	SQSWriter SQSWriter      `toml:"sqs_writer"`
+	API       APIConfig      `toml:"api"`
+	Check     CheckConfig    `toml:"check"`
+	Runtime   RuntimeConfig  `toml:"runtime"`
+	DataDog   DatadogConfig  `toml:"datadog"`
 }
 
 // AgentConfig defines the higher level configuration for the agent.
 type AgentConfig struct {
-	JobqueueID string `toml:"jobqueue_id"`
-	LogLevel   string `toml:"log_level"`
-	LogFile    string `toml:"log_file"`
-	Timeout    int    `toml:"timeout"` // Timeout to start running a check.
-}
-
-// SchedulerConfig defines the configuration for the scheduler.
-type SchedulerConfig struct {
-	ConcurrentJobs    int `toml:"concurrent_jobs"`
-	MonitorInterval   int `toml:"monitor_interval"`
-	HeartbeatInterval int `toml:"heartbeat_interval"`
-}
-
-// PersistenceConfig defines the configuration for the persistence service.
-type PersistenceConfig struct {
-	Endpoint string `toml:"endpoint"`
-	Timeout  int    `toml:"timeout"`
-	Retries  int    `toml:"retries"`
+	LogLevel       string `toml:"log_level"`
+	LogFile        string `toml:"log_file"`
+	Timeout        int    `toml:"timeout"` // Timeout to start running a check.
+	ConcurrentJobs int    `toml:"concurrent_jobs"`
+	// MaxMsgsInterval defines the maximun time, in seconds, the agent can
+	// running without reading any message from the queue.
+	MaxNoMsgsInterval int `toml:"max_no_msgs_interval"`
 }
 
 // StreamConfig defines the configuration for the event stream.
 type StreamConfig struct {
 	Endpoint      string `toml:"endpoint"`
+	QueryEndpoint string `toml:"query_endpoint"`
 	Timeout       int    `toml:"timeout"`
 	Retries       int    `toml:"retries"`
 	RetryInterval int    `toml:"retry_interval"`
@@ -52,16 +41,25 @@ type StreamConfig struct {
 
 // UploaderConfig defines the configuration for the results service.
 type UploaderConfig struct {
-	Endpoint string `toml:"endpoint"`
-	Timeout  int    `toml:"timeout"`
+	Endpoint      string `toml:"endpoint"`
+	Timeout       int    `toml:"timeout"`
+	Retries       int    `toml:"retries"`
+	RetryInterval int    `toml:"retry_interval"`
 }
 
-// SQSConfig defines the configuration for the SQS queue.
-type SQSConfig struct {
-	PollingInterval int    `toml:"polling_interval"`
-	Endpoint        string `toml:"endpoint"`
-	Region          string `toml:"region"`
-	QueueName       string `toml:"queue_name"`
+// SQSReader defines the config of sqs reader.
+type SQSReader struct {
+	Endpoint          string `toml:"endpoint"`
+	ARN               string `toml:"arn"`
+	VisibilityTimeout int    `toml:"visibility_timeout"`
+	PollingInterval   int    `toml:"polling_interval"`
+	ProcessQuantum    int    `toml:"process_quantum"`
+}
+
+// SQSWriter defines the config params from the sqs writer.
+type SQSWriter struct {
+	Endpoint string `toml:"endpoint"`
+	ARN      string `toml:"arn"`
 }
 
 // APIConfig defines the configuration for the agent API.

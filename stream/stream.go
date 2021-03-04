@@ -2,279 +2,151 @@ package stream
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 
-	agent "github.com/adevinta/vulcan-agent"
-	"github.com/adevinta/vulcan-agent/check"
-	metrics "github.com/adevinta/vulcan-metrics-client"
+	"github.com/adevinta/vulcan-agent/log"
 )
 
-// Internal mutex
-var mu sync.Mutex
-
-// Possible statuses for the stream.
-const (
-	StatusConnecting   = "CONNECTING"
-	StatusConnected    = "CONNECTED"
-	StatusReconnecting = "RECONNECTING"
-	StatusDisconnected = "DISCONNECTED"
+var (
+	// ReadTimeout specifies the time, in seconds, the streams wait for reading
+	// the next message.
+	ReadTimeout = 15
 )
 
-// BufLen holds the length of the events buffer.
-const BufLen = 10
-
-// Stream represents a stream
-type Stream struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	agent         agent.Agent
-	storage       check.Storage
-	metricsClient metrics.Client
-	status        string
-	endpoint      string
-	stream        *websocket.Conn
-	streamDialer  *WSDialerWithRetries
-	timeout       time.Duration
-	events        chan Message
-	log           *logrus.Entry
+type readMessageResult struct {
+	Error   error
+	Message Message
 }
 
-// Message represents a Stream message
+// Retryer represents the functions used by the Stream for retrying when
+// connecting to the stream.
+type Retryer interface {
+	WithRetries(op string, exec func() error) error
+}
+
+// Message describes a stream message
 type Message struct {
+	CheckID string `json:"check_id,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	ScanID  string `json:"scan_id,omitempty"`
 	Action  string `json:"action"`
-	AgentID string `json:"agent_id"`
-	ScanID  string `json:"scan_id"`
 }
 
-// New initializes and connects a new Stream
-func New(ctx context.Context, cancel context.CancelFunc,
-	agent agent.Agent, storage check.Storage, metricsClient metrics.Client, endpoint string,
-	timeout time.Duration, log *logrus.Entry, retries int, retryInterval time.Duration) (Stream, error) {
+// MsgProcessor defines the function that the Stream will call when an abort
+// message has been received.
+type MsgProcessor interface {
+	AbortCheck(ID string)
+}
 
-	dialer := NewWSDialerWithRetries(websocket.DefaultDialer, log.WithField("stream", "dialer"), retries, retryInterval)
-	conn, _, err := dialer.Dial(endpoint, http.Header{})
+// Stream reads messages from the stream server and process them using a given
+// message processor.
+type Stream struct {
+	p        MsgProcessor
+	dialer   *WSDialerWithRetries
+	l        log.Logger
+	endpoint string
+}
+
+// New creates a new stream that will use the given processor to process the messages
+// received by the Stream.
+func New(l log.Logger, processor MsgProcessor, retryer Retryer, endpoint string) *Stream {
+	dialer := NewWSDialerWithRetries(websocket.DefaultDialer, l, retryer)
+	return &Stream{
+		p:        processor,
+		l:        l,
+		dialer:   dialer,
+		endpoint: endpoint,
+	}
+}
+
+// ListenAndProcess start listening for new messages from a stream.
+func (s *Stream) ListenAndProcess(ctx context.Context) (<-chan error, error) {
+	conn, _, err := s.dialer.Dial(ctx, s.endpoint, http.Header{})
 	if err != nil {
-		return Stream{}, err
+		return nil, err
 	}
-	events := make(chan Message, BufLen)
-	s := Stream{
-		ctx:           ctx,
-		cancel:        cancel,
-		agent:         agent,
-		storage:       storage,
-		metricsClient: metricsClient,
-		status:        StatusConnecting,
-		endpoint:      endpoint,
-		stream:        conn,
-		streamDialer:  dialer,
-		events:        events,
-		timeout:       timeout,
-		log:           log,
-	}
-
-	return s, nil
+	var done = make(chan error, 1)
+	go s.listenAndProcess(ctx, conn, done)
+	return done, nil
 }
 
-// HandleRegister manages the initial handshake with the persistence
-// in a synchronous way.
-func (s *Stream) HandleRegister() error {
-	done := s.connect(func(msg Message) bool {
-		// We consider the agent registered if, before the default timeout
-		// passes, we receive a register message for this agent.
-		return msg.Action == "register" && msg.AgentID == s.agent.ID()
-	})
-	err := <-done
-	if err != nil {
-		s.setStatus(StatusDisconnected)
-		// Disconnect agent.
-		s.cancel()
-		return err
-	}
-	s.setStatus(StatusConnected)
-	return nil
-}
-
-func (s *Stream) connect(connected func(Message) bool) <-chan error {
-	done := make(chan error)
-	go func() {
-		var err error
-		ticker := time.NewTicker(100 * time.Millisecond)
-		// We set the timeout here in order to ensure we only read from
-		// the websocket, at most, until the timeout elapses.
-		s.stream.SetReadDeadline(time.Now().Add(s.timeout))
-	LOOP:
-		for {
-			select {
-			case <-ticker.C:
-				msg := Message{}
-				rcvErr := websocket.ReadJSON(s.stream, &msg)
-				if rcvErr != nil {
-					if strings.HasPrefix(rcvErr.Error(), "json:") {
-						s.log.WithError(rcvErr).WithFields(logrus.Fields{
-							"message": msg,
-						}).Warn("error decoding stream message")
-						continue
-					}
-					s.log.WithError(rcvErr).WithFields(logrus.Fields{
-						"message": msg,
-					}).Warn("error receiving stream message")
-					err = rcvErr
+func (s *Stream) listenAndProcess(ctx context.Context, conn *websocket.Conn, done chan<- error) {
+	var (
+		msgRead = s.readMessage(conn)
+		err     error
+	)
+LOOP:
+	for {
+		select {
+		case readRes := <-msgRead:
+			err = readRes.Error
+			if err != nil {
+				s.l.Errorf("error reading message from the stream: %s", err)
+				conn, err = s.reconnect(ctx)
+				if err != nil {
 					break LOOP
 				}
-				s.log.WithFields(logrus.Fields{
-					"message": msg,
-				}).Debug("stream message received")
-				if connected(msg) {
-					break LOOP
-				}
-			case <-s.ctx.Done():
-				err = errors.New("agent context is done in stream")
-				break LOOP
+				msgRead = s.readMessage(conn)
+				continue
 			}
+			s.processMessage(readRes.Message)
+			msgRead = s.readMessage(conn)
+		case <-ctx.Done():
+			err = ctx.Err()
+			break LOOP
 		}
-		done <- err
-	}()
-	return done
+	}
+	// Ensure the read goroutine existed.
+	<-s.readMessage(conn)
+	done <- err
 }
 
-func (s *Stream) reconnect() error {
-	s.setStatus(StatusReconnecting)
-	s.log.Warn("stream reconnecting")
-	conn, _, err := s.streamDialer.Dial(s.endpoint, http.Header{})
-	if err != nil {
-		return err
-	}
-	s.stream = conn
-	done := s.connect(func(msg Message) bool {
-		// We consider the agent to be reconnected if we receive any correct
-		// message before the timeout passes.
-		return true
-	})
-	err = <-done
-	if err != nil {
-		s.setStatus(StatusDisconnected)
-		return err
-	}
-	s.log.Info("stream connected")
-	s.setStatus(StatusConnected)
-	return nil
-}
-
-func (s *Stream) processMessage(actions map[string]func(agent.Agent, string), msg Message) {
-	if msg.AgentID != "" && msg.AgentID != s.agent.ID() {
-		s.log.Debug("stream message for unknown agent")
-		return
-	}
-	// We can safely pass the scanID to any function because only the
-	// abortScan function takes into account the second parameter. If
-	// that changes in the future we must redesign the way we run
-	// functions to attend stream messages.
-	if f, ok := actions[msg.Action]; ok {
-		go f(s.agent, msg.ScanID)
-	} else {
-		s.log.WithFields(logrus.Fields{
-			"action": msg.Action,
-		}).Warn("stream message with unknown action")
+func (s *Stream) reconnect(ctx context.Context) (*websocket.Conn, error) {
+	// Try to reconnect until a success or until the context is cancelled.
+	var (
+		conn *websocket.Conn
+		err  error
+	)
+	for {
+		conn, _, err = s.dialer.Dial(ctx, s.endpoint, http.Header{})
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			s.l.Errorf("trying to dial stream: %v", err)
+			continue
+		}
+		return conn, nil
 	}
 }
 
-// HandleMessages handle Stream messages
-func (s *Stream) HandleMessages(actions map[string]func(agent.Agent, string)) error {
-	s.setStatus(StatusConnected)
-	done := make(chan error)
+func (s *Stream) readMessage(conn *websocket.Conn) <-chan readMessageResult {
+	var read = make(chan readMessageResult)
 	go func() {
-		var err error
-		ticker := time.NewTicker(100 * time.Millisecond)
-	LOOP:
-		for {
-			select {
-			case <-ticker.C:
-				msg := Message{}
-				// We set the timeout here in order to ensure we only read from
-				// the websocket, at most, until the timeout elapses each time
-				// we read.
-				s.stream.SetReadDeadline(time.Now().Add(s.timeout))
-				rcvErr := websocket.ReadJSON(s.stream, &msg)
-				if rcvErr != nil {
-					if strings.HasPrefix(rcvErr.Error(), "json:") {
-						s.log.WithError(rcvErr).WithFields(logrus.Fields{
-							"message": msg,
-						}).Warn("error decoding stream message")
-						continue
-					}
-					s.log.WithError(rcvErr).WithFields(logrus.Fields{
-						"message": msg,
-					}).Warn("error receiving stream message")
-					// We had a timeout error try to reconnect one time.
-					s.log.Warn("stream connection lost")
-					err = s.reconnect()
-					if err != nil {
-						break LOOP
-					}
-					continue
-				}
-				s.log.WithFields(logrus.Fields{
-					"message": msg,
-				}).Debug("stream message received")
-				s.incrReceivedMssgs(msg, s.agent.ID())
-				s.processMessage(actions, msg)
-			case <-s.ctx.Done():
-				s.log.Debug("agent context in is done in stream")
-				break LOOP
-			}
-		}
-		done <- err
+		nextTime := time.Now()
+		nextTime = nextTime.Add(time.Second * time.Duration(ReadTimeout))
+		conn.SetReadDeadline(nextTime)
+		var msg = new(Message)
+		err := conn.ReadJSON(msg)
+		read <- readMessageResult{Error: err, Message: *msg}
+		close(read)
 	}()
-	err := <-done
-	if err != nil {
-		s.log.WithError(err).Error("stream disconnected")
-		s.setStatus(StatusDisconnected)
-		// Disconnect agent.
-		s.cancel()
-		return err
+	return read
+}
+
+func (s *Stream) processMessage(msg Message) {
+	switch msg.Action {
+	case "ping":
+	case "abort":
+		if msg.CheckID == "" {
+			s.l.Errorf("error, reading stream message abort without checkID")
+			return
+		}
+		s.p.AbortCheck(msg.CheckID)
+	default:
+		s.l.Errorf("error unknown message received: %+v", msg)
 	}
-	return nil
-}
-
-// disconnect closes the connection to a Stream
-// This method exists for testing purposes only.
-func (s *Stream) disconnect() error {
-	return s.stream.Close()
-}
-
-// Status returns the status of a Stream
-func (s *Stream) Status() string {
-	mu.Lock()
-	defer mu.Unlock()
-	return s.status
-}
-
-// setStatus set the status of a Stream
-func (s *Stream) setStatus(status string) {
-	mu.Lock()
-	defer mu.Unlock()
-	s.status = status
-}
-
-// incrReceivedMssgs increments the metric for
-// received messages from stream broadcasting.
-func (s *Stream) incrReceivedMssgs(msg Message, agentID string) {
-	s.metricsClient.Push(metrics.Metric{
-		Name:  "vulcan.stream.mssgs.received",
-		Typ:   metrics.Count,
-		Value: 1,
-		Tags: []string{
-			"component:agent",
-			fmt.Sprint("action:", msg.Action),
-			fmt.Sprint("agentid:", agentID),
-		},
-	})
 }

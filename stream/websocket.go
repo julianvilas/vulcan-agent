@@ -3,47 +3,45 @@ package stream
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/lestrrat-go/backoff"
-	"github.com/sirupsen/logrus"
+
+	"github.com/adevinta/vulcan-agent/log"
 )
 
 // WSDialerWithRetries provides retries with backoff and jitter
 // when initiating a connection to a websocket.
 type WSDialerWithRetries struct {
 	*websocket.Dialer
-	p backoff.Policy
-	l *logrus.Entry
+	retryer Retryer
+	l       log.Logger
 }
 
 // NewWSDialerWithRetries creates a WSDialer with the given retries parameters.
-func NewWSDialerWithRetries(dialer *websocket.Dialer, log *logrus.Entry, retries int, interval time.Duration) *WSDialerWithRetries {
-	p := backoff.NewExponential(
-		backoff.WithInterval(interval),
-		backoff.WithJitterFactor(0.05),
-		backoff.WithMaxRetries(retries),
-	)
-	return &WSDialerWithRetries{dialer, p, log}
+func NewWSDialerWithRetries(dialer *websocket.Dialer, l log.Logger, r Retryer) *WSDialerWithRetries {
+	return &WSDialerWithRetries{dialer, r, l}
 }
 
 // Dial wraps the dial function of the websocket dialer adding retries
 // functionality.
-func (ws *WSDialerWithRetries) Dial(urlStr string, requestHeader http.Header) (*websocket.Conn, *http.Response, error) {
+func (ws *WSDialerWithRetries) Dial(ctx context.Context, urlStr string, requestHeader http.Header) (*websocket.Conn, *http.Response, error) {
 	var (
 		conn *websocket.Conn
 		resp *http.Response
 	)
-	err := withBackoff(ws.p, ws.l.WithField("websocket", "dial"), func() error {
+	err := ws.retryer.WithRetries("WSDialer.Dial", func() error {
 		var err error
-		conn, resp, err = websocket.DefaultDialer.Dial(urlStr, requestHeader)
+		conn, resp, err = websocket.DefaultDialer.DialContext(ctx, urlStr, requestHeader)
+		if err != nil {
+			ws.l.Errorf("websocked error dialing %+v", err)
+		}
 		return err
 	})
 	return conn, resp, err
 }
 
-func withBackoff(p backoff.Policy, l *logrus.Entry, exec func() error) error {
+func withBackoff(p backoff.Policy, l log.Logger, exec func() error) error {
 	var err error
 	retry, cancel := p.Start(context.Background())
 	defer cancel()
@@ -55,12 +53,12 @@ func withBackoff(p backoff.Policy, l *logrus.Entry, exec func() error) error {
 		}
 		select {
 		case <-retry.Done():
-			l.WithField("retry_number", n).Error("backoff finished unable to perform operation")
+			l.Errorf("websocket connect backoff finished unable to perform operation, retry_number: %d", n)
 			return err
 		case <-retry.Next():
 			n++
 			if n > 1 {
-				l.WithField("retry_number", n-1).Error("backoff fired. Retrying")
+				l.Infof("websocker connect backoff fired. Retrying, retry number: %d", n)
 			}
 		}
 	}
