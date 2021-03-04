@@ -10,5 +10,7 @@ env:
     - GO111MODULE=on
 gobuild_args: -a -tags netgo -ldflags "-w -X main.version=${TRAVIS_COMMIT}"
 go_import_path: github.com/adevinta/vulcan-agent
+before_script:
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
 script:
   - go test -short -race -v $(go list ./... | grep -v /vendor/)
