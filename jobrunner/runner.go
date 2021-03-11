@@ -11,6 +11,7 @@ import (
 
 	"github.com/adevinta/vulcan-agent/backend"
 	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/queue"
 	"github.com/adevinta/vulcan-agent/stateupdater"
 )
 
@@ -95,12 +96,13 @@ type Runner struct {
 	// caller of the Run function must take a token from this channel before
 	// actually calling "Run" in order to ensure there are no more than
 	// maxTokens jobs running at the same time.
-	Tokens         chan interface{}
-	Logger         log.Logger
-	CheckUpdater   CheckStateUpdater
-	cAborter       *checkAborter
-	abortedChecks  AbortedChecks
-	defaultTimeout time.Duration
+	Tokens               chan interface{}
+	Logger               log.Logger
+	CheckUpdater         CheckStateUpdater
+	cAborter             *checkAborter
+	abortedChecks        AbortedChecks
+	defaultTimeout       time.Duration
+	maxTimesMsgProcessed int
 }
 
 // RunnerConfig contains config parameters for a Runner.
@@ -153,25 +155,43 @@ func (cr *Runner) FreeTokens() chan interface{} {
 // there must be free tokens on the channel before calling this method. When the
 // message if processed the channel returned will indicate if the message must
 // be deleted or not.
-func (cr *Runner) ProcessMessage(msg string, token interface{}) <-chan bool {
+func (cr *Runner) ProcessMessage(msg queue.Message, token interface{}) <-chan bool {
 	var processed = make(chan bool, 1)
 	go cr.runJob(msg, token, processed)
 	return processed
 }
 
-func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
+func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	// Check the token is valid.
 	if _, ok := t.(token); !ok {
 		cr.finishJob("", processed, false, ErrInvalidToken)
 		return
 	}
 	j := &Job{}
-	err := json.Unmarshal([]byte(msg), j)
+	err := json.Unmarshal([]byte(m.Body), j)
 	if err != nil {
 		cr.finishJob("", processed, true, err)
 		return
 	}
 
+	// Check if the message has been processed more than the maximum defined
+	// times.
+	if m.TimesRead > cr.maxTimesMsgProcessed {
+		status := stateupdater.StatusFailed
+		err = cr.CheckUpdater.UpdateState(
+			stateupdater.CheckState{
+				ID:     j.CheckID,
+				Status: &status,
+			})
+		if err != nil {
+			err = fmt.Errorf("error updating the status of the check: %s, error: %w", j.CheckID, err)
+			cr.finishJob(j.CheckID, processed, false, err)
+			return
+		}
+		err = fmt.Errorf("error max processed times exceeded for check: %s, error: %w", j.CheckID, err)
+		cr.finishJob(j.CheckID, processed, true, nil)
+		return
+	}
 	// Check if the check has been aborted.
 	aborted, err := cr.abortedChecks.IsAborted(j.CheckID)
 	if err != nil {
@@ -243,16 +263,20 @@ func (cr *Runner) runJob(msg string, t interface{}, processed chan bool) {
 	// When the check is finished it can not be aborted anymore
 	// so we remove it from aborter.
 	cr.cAborter.Remove(j.CheckID)
+
+	// Try always to upload the logs of the check if present.
+	if res.Output != nil {
+		logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, j.StartTime, res.Output)
+		if err != nil {
+			err = fmt.Errorf("error storing the logs of the check: %s, error %w", j.CheckID, err)
+			cr.finishJob(j.CheckID, processed, false, err)
+			return
+		}
+	}
 	// Check if the backend returned any not expected error while runing the check.
 	execErr := res.Error
 	if execErr != nil && !errors.Is(execErr, context.DeadlineExceeded) && !errors.Is(execErr, context.Canceled) {
 		cr.finishJob(j.CheckID, processed, false, execErr)
-		return
-	}
-	logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, j.StartTime, res.Output)
-	if err != nil {
-		err = fmt.Errorf("error storing the logs of the check: %s, error %w", j.CheckID, err)
-		cr.finishJob(j.CheckID, processed, false, err)
 		return
 	}
 	// Set the link for the logs of the check.

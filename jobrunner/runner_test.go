@@ -11,6 +11,7 @@ import (
 
 	"github.com/adevinta/vulcan-agent/backend"
 	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/queue"
 	"github.com/adevinta/vulcan-agent/stateupdater"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
@@ -108,7 +109,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 		defaultTimeout time.Duration
 	}
 	type args struct {
-		msg   string
+		msg   queue.Message
 		token interface{}
 	}
 	tests := []struct {
