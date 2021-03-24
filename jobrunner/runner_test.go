@@ -52,8 +52,9 @@ type CheckRaw struct {
 	StartTime time.Time
 }
 type inMemChecksUpdater struct {
-	updates []stateupdater.CheckState
-	raws    []CheckRaw
+	updates       []stateupdater.CheckState
+	checksRemoved []string
+	raws          []CheckRaw
 }
 
 func (im *inMemChecksUpdater) UpdateState(cs stateupdater.CheckState) error {
@@ -76,9 +77,34 @@ func (im *inMemChecksUpdater) UpdateCheckRaw(checkID string, stime time.Time, ra
 	return fmt.Sprintf("%s/logs", checkID), nil
 }
 
+func (im *inMemChecksUpdater) IsCheckTerminated(ID string) bool {
+	for _, u := range im.updates {
+		if u.Status != nil && stateupdater.IsTerminalStatus(*u.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+func (im *inMemChecksUpdater) RemoveCheck(ID string) {
+	if im.checksRemoved == nil {
+		im.checksRemoved = make([]string, 0)
+	}
+	im.checksRemoved = append(im.checksRemoved, ID)
+}
+
 type mockChecksUpdater struct {
-	stateUpdater    func(cs stateupdater.CheckState) error
-	checkRawUpdater func(checkID string, stime time.Time, raw []byte) (string, error)
+	stateUpdater         func(cs stateupdater.CheckState) error
+	checkRawUpdater      func(checkID string, stime time.Time, raw []byte) (string, error)
+	isTerminalStatus     func(string) bool
+	terminalCheckRemover func(string)
+}
+
+func (m *mockChecksUpdater) IsCheckTerminated(ID string) bool {
+	return m.isTerminalStatus(ID)
+}
+func (m *mockChecksUpdater) RemoveCheck(ID string) {
+	m.terminalCheckRemover(ID)
 }
 
 func (m *mockChecksUpdater) UpdateState(cs stateupdater.CheckState) error {
@@ -383,7 +409,6 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					{
 						ID:     runJobFixture1.CheckID,
 						Status: &state,
-						// Raw: &rawLink,
 					},
 				}
 				rawsDiff := cmp.Diff(wantRaws, gotRaws)
@@ -486,6 +511,11 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					},
 					checkRawUpdater: func(checkID string, stime time.Time, raw []byte) (string, error) {
 						return "link", nil
+					},
+					isTerminalStatus: func(string) bool {
+						return true
+					},
+					terminalCheckRemover: func(string) {
 					},
 				},
 			},

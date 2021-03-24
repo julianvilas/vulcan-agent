@@ -89,6 +89,8 @@ func (c *checkAborter) Runing() int {
 type CheckStateUpdater interface {
 	UpdateState(stateupdater.CheckState) error
 	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
+	IsCheckTerminated(ID string) bool
+	RemoveCheck(ID string)
 }
 
 // AbortedChecks defines the shape of the component needed by a Runner in order
