@@ -4,7 +4,10 @@ Copyright 2021 Adevinta
 
 package backend
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Constants defining environment variables that a check expects.
 const (
@@ -17,6 +20,10 @@ const (
 	CheckLogLevelVar    = "VULCAN_CHECK_LOG_LVL"
 	AgentAddressVar     = "VULCAN_AGENT_ADDRESS"
 )
+
+// ErrConExitUnexpected is returned by the docker backend when a
+// container was killed externally while running.
+var ErrConExitUnexpected = errors.New("container finished unexpectedly")
 
 // RunResult defines the info that must be returned when a check is
 // finished.

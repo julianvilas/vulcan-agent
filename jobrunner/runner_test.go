@@ -614,6 +614,79 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
 			},
 		},
+		{
+			name: "UpdatesStateWhenCheckStatusUnexpected",
+			fields: fields{
+				Backend: &mockBackend{
+					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
+						var res = make(chan backend.RunResult)
+						go func() {
+							output, err := json.Marshal(params)
+							if err != nil {
+								panic(err)
+							}
+							results := backend.RunResult{
+								Output: output,
+								Error:  backend.ErrConExitUnexpected,
+							}
+							res <- results
+						}()
+						return res, nil
+					},
+				},
+				cAborter: &checkAborter{
+					cancels: sync.Map{},
+				},
+				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
+				defaultTimeout: time.Duration(10 * time.Second),
+				Tokens:         make(chan interface{}, 10),
+				Logger:         &log.NullLog{},
+				CheckUpdater:   &inMemChecksUpdater{},
+			},
+			args: args{
+				msg: queue.Message{
+					Body: string(mustMarshal(runJobFixture1)),
+				},
+				token: token{},
+			},
+			want: true,
+			wantState: func(r *Runner) string {
+				updater := r.CheckUpdater.(*inMemChecksUpdater)
+				gotRaws := updater.raws
+				wantRunParams := backend.RunParams{
+					CheckID:          runJobFixture1.CheckID,
+					CheckTypeName:    "job1",
+					ChecktypeVersion: "latest",
+					Image:            runJobFixture1.Image,
+					Options:          runJobFixture1.Options,
+					Target:           runJobFixture1.Target,
+					AssetType:        runJobFixture1.AssetType,
+					RequiredVars:     runJobFixture1.RequiredVars,
+				}
+				wantRaws := []CheckRaw{{
+					Raw:       mustMarshalRunParams(wantRunParams),
+					CheckID:   runJobFixture1.CheckID,
+					StartTime: runJobFixture1.StartTime,
+				}}
+				gotUpdates := updater.updates
+				state := stateupdater.StatusFailed
+				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				wantUpdates := []stateupdater.CheckState{
+					{
+						ID:  runJobFixture1.CheckID,
+						Raw: &rawLink,
+					},
+					{
+						ID:     runJobFixture1.CheckID,
+						Status: &state,
+						// Raw: &rawLink,
+					},
+				}
+				rawsDiff := cmp.Diff(wantRaws, gotRaws)
+				updateDiff := cmp.Diff(wantUpdates, gotUpdates)
+				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

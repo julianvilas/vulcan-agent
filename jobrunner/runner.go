@@ -299,7 +299,10 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	}
 	// Check if the backend returned any not expected error while runing the check.
 	execErr := res.Error
-	if execErr != nil && !errors.Is(execErr, context.DeadlineExceeded) && !errors.Is(execErr, context.Canceled) {
+	if execErr != nil &&
+		!errors.Is(execErr, context.DeadlineExceeded) &&
+		!errors.Is(execErr, context.Canceled) &&
+		!errors.Is(execErr, backend.ErrConExitUnexpected) {
 		cr.finishJob(j.CheckID, processed, false, execErr)
 		return
 	}
@@ -313,6 +316,9 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	}
 	if errors.Is(execErr, context.Canceled) {
 		status = stateupdater.StatusAborted
+	}
+	if errors.Is(execErr, backend.ErrConExitUnexpected) {
+		status = stateupdater.StatusFailed
 	}
 	// If the check was not canceled or aborted we just finish its execution.
 	if status == "" {
