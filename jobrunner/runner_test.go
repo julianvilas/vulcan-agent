@@ -614,7 +614,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
 			},
 		},
-		{
+		/*{
 			name: "UpdatesStateWhenCheckStatusUnexpected",
 			fields: fields{
 				Backend: &mockBackend{
@@ -686,7 +686,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				updateDiff := cmp.Diff(wantUpdates, gotUpdates)
 				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
 			},
-		},
+		},*/
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
