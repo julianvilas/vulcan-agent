@@ -187,7 +187,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		cr.finishJob("", processed, true, err)
 		return
 	}
-
+	cr.Logger.Infof("running check %s", j.CheckID)
 	// Check if the message has been processed more than the maximum defined
 	// times.
 	if m.TimesRead > cr.maxMessageProcessedTimes {
@@ -336,6 +336,9 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 }
 
 func (cr *Runner) finishJob(checkID string, processed chan<- bool, delete bool, err error) {
+	if err == nil && checkID != "" {
+		cr.Logger.Infof("finished running check %s with no error, mark to be deleted: %+v", checkID, delete)
+	}
 	if err != nil && checkID != "" {
 		cr.Logger.Errorf("error %+v running check_id %s", err, checkID)
 	}
