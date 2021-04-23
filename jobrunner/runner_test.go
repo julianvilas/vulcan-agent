@@ -22,6 +22,15 @@ import (
 )
 
 var (
+	terminalStatuses = map[string]struct{}{
+		stateupdater.StatusFailed:       {},
+		stateupdater.StatusFinished:     {},
+		stateupdater.StatusInconclusive: {},
+		stateupdater.StatusKilled:       {},
+		stateupdater.StatusMalformed:    {},
+		stateupdater.StatusTimeout:      {},
+	}
+
 	errUnexpectedTest = errors.New("unexpected")
 
 	runJobFixture1 = Job{
@@ -76,9 +85,28 @@ func (im *inMemChecksUpdater) UpdateCheckRaw(checkID string, stime time.Time, ra
 	return fmt.Sprintf("%s/logs", checkID), nil
 }
 
+func (im *inMemChecksUpdater) CheckStatusTerminal(ID string) bool {
+	for _, u := range im.updates {
+		status := ""
+		if u.Status != nil {
+			status = *u.Status
+		}
+		if _, ok := terminalStatuses[status]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (im *inMemChecksUpdater) DeleteCheckStatusTerminal(ID string) {
+
+}
+
 type mockChecksUpdater struct {
-	stateUpdater    func(cs stateupdater.CheckState) error
-	checkRawUpdater func(checkID string, stime time.Time, raw []byte) (string, error)
+	stateUpdater         func(cs stateupdater.CheckState) error
+	checkRawUpdater      func(checkID string, stime time.Time, raw []byte) (string, error)
+	checkTerminalChecker func(ID string) bool
+	checkTerminalDeleter func(ID string)
 }
 
 func (m *mockChecksUpdater) UpdateState(cs stateupdater.CheckState) error {
@@ -87,6 +115,14 @@ func (m *mockChecksUpdater) UpdateState(cs stateupdater.CheckState) error {
 
 func (m *mockChecksUpdater) UpdateCheckRaw(checkID string, stime time.Time, raw []byte) (string, error) {
 	return m.checkRawUpdater(checkID, stime, raw)
+}
+
+func (m *mockChecksUpdater) CheckStatusTerminal(ID string) bool {
+	return m.checkTerminalChecker(ID)
+}
+
+func (m *mockChecksUpdater) DeleteCheckStatusTerminal(ID string) {
+	m.checkTerminalDeleter(ID)
 }
 
 type mockBackend struct {
@@ -160,6 +196,83 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				defaultTimeout: time.Duration(10 * time.Second),
 				Tokens:         make(chan interface{}, 10),
 				Logger:         &log.NullLog{},
+				CheckUpdater: &inMemChecksUpdater{
+					updates: []stateupdater.CheckState{
+						{
+							ID:     runJobFixture1.CheckID,
+							Status: str2ptr(stateupdater.StatusFinished),
+						},
+					},
+				},
+			},
+			args: args{
+				msg: queue.Message{
+					Body: string(mustMarshal(runJobFixture1)),
+				},
+				token: token{},
+			},
+			want: true,
+			wantState: func(r *Runner) string {
+				updater := r.CheckUpdater.(*inMemChecksUpdater)
+				gotRaws := updater.raws
+				wantRunParams := backend.RunParams{
+					CheckID:          runJobFixture1.CheckID,
+					CheckTypeName:    "job1",
+					ChecktypeVersion: "latest",
+					Image:            runJobFixture1.Image,
+					Options:          runJobFixture1.Options,
+					Target:           runJobFixture1.Target,
+					AssetType:        runJobFixture1.AssetType,
+					RequiredVars:     runJobFixture1.RequiredVars,
+				}
+				wantRaws := []CheckRaw{{
+					Raw:       mustMarshalRunParams(wantRunParams),
+					CheckID:   runJobFixture1.CheckID,
+					StartTime: runJobFixture1.StartTime,
+				}}
+				gotUpdates := updater.updates
+				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				wantUpdates := []stateupdater.CheckState{
+					{
+						ID:     runJobFixture1.CheckID,
+						Status: str2ptr(stateupdater.StatusFinished),
+					},
+					{
+						ID:  runJobFixture1.CheckID,
+						Raw: &rawLink,
+					},
+				}
+				rawsDiff := cmp.Diff(wantRaws, gotRaws)
+				updateDiff := cmp.Diff(wantUpdates, gotUpdates)
+				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
+			},
+		},
+		{
+			name: "TerminatesACheckIfNeeded",
+			fields: fields{
+				Backend: &mockBackend{
+					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
+						var res = make(chan backend.RunResult)
+						go func() {
+							output, err := json.Marshal(params)
+							if err != nil {
+								panic(err)
+							}
+							results := backend.RunResult{
+								Output: output,
+							}
+							res <- results
+						}()
+						return res, nil
+					},
+				},
+				cAborter: &checkAborter{
+					cancels: sync.Map{},
+				},
+				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
+				defaultTimeout: time.Duration(10 * time.Second),
+				Tokens:         make(chan interface{}, 10),
+				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
@@ -194,13 +307,16 @@ func TestRunner_ProcessMessage(t *testing.T) {
 						ID:  runJobFixture1.CheckID,
 						Raw: &rawLink,
 					},
+					{
+						ID:     runJobFixture1.CheckID,
+						Status: str2ptr(stateupdater.StatusFailed),
+					},
 				}
 				rawsDiff := cmp.Diff(wantRaws, gotRaws)
 				updateDiff := cmp.Diff(wantUpdates, gotUpdates)
 				return fmt.Sprintf("%s%s", rawsDiff, updateDiff)
 			},
 		},
-
 		{
 			name: "ReturnsAnError",
 			fields: fields{
@@ -487,6 +603,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					checkRawUpdater: func(checkID string, stime time.Time, raw []byte) (string, error) {
 						return "link", nil
 					},
+					checkTerminalChecker: func(ID string) bool {
+						return false
+					},
+					checkTerminalDeleter: func(string) {
+
+					},
 				},
 			},
 			args: args{
@@ -728,4 +850,8 @@ func mustMarshalRunParams(params backend.RunParams) []byte {
 		panic(err)
 	}
 	return res
+}
+
+func str2ptr(str string) *string {
+	return &str
 }

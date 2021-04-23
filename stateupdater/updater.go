@@ -4,7 +4,10 @@ Copyright 2021 Adevinta
 
 package stateupdater
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"sync"
+)
 
 const (
 	StatusCreated      = "CREATED"
@@ -20,6 +23,15 @@ const (
 	StatusMalformed    = "MALFORMED"
 	StatusInconclusive = "INCONCLUSIVE"
 )
+
+var terminalStatuses = map[string]struct{}{
+	StatusFailed:       {},
+	StatusFinished:     {},
+	StatusInconclusive: {},
+	StatusKilled:       {},
+	StatusMalformed:    {},
+	StatusTimeout:      {},
+}
 
 // CheckState defines the all the possible fields of the states
 // sent to the check state queue.
@@ -41,12 +53,13 @@ type QueueWriter interface {
 // Updater takes a CheckState an send its to a queue using the defined queue
 // writer.
 type Updater struct {
-	qw QueueWriter
+	qw             QueueWriter
+	terminalChecks sync.Map
 }
 
 // New creates a new updater using the provided queue writer.
 func New(qw QueueWriter) *Updater {
-	return &Updater{qw}
+	return &Updater{qw, sync.Map{}}
 }
 
 // UpdateState updates the state of tha check into the underlaying queue.
@@ -55,5 +68,29 @@ func (u *Updater) UpdateState(s CheckState) error {
 	if err != nil {
 		return err
 	}
-	return u.qw.Write(string(body))
+	err = u.qw.Write(string(body))
+	if err != nil {
+		return err
+	}
+	status := ""
+	if s.Status != nil {
+		status = *s.Status
+	}
+	if _, ok := terminalStatuses[status]; ok {
+		u.terminalChecks.Store(s.ID, struct{}{})
+	}
+	return nil
+}
+
+// CheckStatusTerminal returns true if a check with the given ID has
+// sent so far a state update including a status in a terminal state.
+func (u *Updater) CheckStatusTerminal(ID string) bool {
+	_, ok := u.terminalChecks.Load(ID)
+	return ok
+}
+
+// DeleteCheckStatusTerminal deletes the information about a check that the
+// Updater is storing.
+func (u *Updater) DeleteCheckStatusTerminal(ID string) {
+	u.terminalChecks.Delete(ID)
 }

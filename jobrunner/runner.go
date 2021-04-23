@@ -89,6 +89,8 @@ func (c *checkAborter) Runing() int {
 type CheckStateUpdater interface {
 	UpdateState(stateupdater.CheckState) error
 	UpdateCheckRaw(checkID string, startTime time.Time, raw []byte) (string, error)
+	CheckStatusTerminal(ID string) bool
+	DeleteCheckStatusTerminal(ID string)
 }
 
 // AbortedChecks defines the shape of the component needed by a Runner in order
@@ -278,6 +280,12 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	// so we remove it from aborter.
 	cr.cAborter.Remove(j.CheckID)
 
+	// We query if the check has sent any status update with a terminal status.
+	isterminal := cr.CheckUpdater.CheckStatusTerminal(j.CheckID)
+	// We signal the CheckUpdater that we don't need it to store that
+	// information anymore.
+	cr.CheckUpdater.DeleteCheckStatusTerminal(j.CheckID)
+
 	// Try always to upload the logs of the check if present.
 	if res.Output != nil {
 		logsLink, err = cr.CheckUpdater.UpdateCheckRaw(j.CheckID, j.StartTime, res.Output)
@@ -318,6 +326,10 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		status = stateupdater.StatusAborted
 	}
 	if errors.Is(execErr, backend.ErrConExitUnexpected) {
+		status = stateupdater.StatusFailed
+	}
+	// Ensure the check sent a status update with a terminal status.
+	if status == "" && !isterminal {
 		status = stateupdater.StatusFailed
 	}
 	// If the check was not canceled or aborted we just finish its execution.
