@@ -215,8 +215,8 @@ func TestIntegrationDockerDetectUnexpectedExit(t *testing.T) {
 	}
 	got := <-gotChan
 	gotErr := got.Error
-	if !errors.Is(gotErr, ErrConExitUnexpected) {
-		t.Errorf("wantError!=gotErr, %+v!=%+v", ErrConExitUnexpected, gotErr)
+	if !errors.Is(gotErr, backend.ErrNonZeroExitCode) {
+		t.Errorf("wantError!=gotErr, %+v!=%+v", backend.ErrNonZeroExitCode, gotErr)
 		return
 	}
 }
