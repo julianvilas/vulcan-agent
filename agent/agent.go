@@ -2,12 +2,11 @@
 Copyright 2019 Adevinta
 */
 
-package cmd
+package agent
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,38 +31,11 @@ import (
 	"github.com/adevinta/vulcan-agent/stream"
 )
 
-// BackendCreator defines the shape of the function that will be called by the
-// function MainWithExitCode in order to create the backend that will run the
-// checks.
-type BackendCreator func(log.Logger, config.Config, backend.CheckVars) (backend.Backend, error)
-
-// MainWithExitCode executes the agent with the backend created by calling the
-// passed BackendCreator. When the function finishes it returns an exit code of
+// Run executes the agent using the given config and backend.
+// When the function finishes it returns an exit code of
 // 0 if the agent terminated gracefully, either by receiving a TERM signal or
 // because it passed more time than configured without reading a message.
-func MainWithExitCode(bc BackendCreator) int {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, "Usage: vulcan-agent config_file")
-		return 1
-	}
-	cfg, err := config.ReadConfig(os.Args[1])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading configuration file: %v", err)
-		return 1
-	}
-	l, err := log.New(cfg.Agent)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading creating log: %v", err)
-		return 1
-	}
-
-	// Build the backend.
-	b, err := bc(l, cfg, cfg.Check.Vars)
-	if err != nil {
-		l.Errorf("error creating the backend to run the checks %v", err)
-		return 1
-	}
-
+func Run(cfg config.Config, b backend.Backend, l log.Logger) int {
 	// Build the results service.
 	timeout := time.Duration(cfg.Uploader.Timeout * int(time.Second))
 	interval := cfg.Uploader.RetryInterval
@@ -118,13 +90,17 @@ func MainWithExitCode(bc BackendCreator) int {
 
 	ctxqr, cancelqr := context.WithCancel(context.Background())
 
-	endpoint = cfg.Stream.Endpoint
-	stream := stream.New(l, metrics, re, endpoint)
-	streamDone, err := stream.ListenAndProcess(ctxqr)
-	if err != nil {
-		l.Errorf("error starting stream: %+v", err)
-		cancelqr()
-		return 1
+	var streamDone <-chan error
+	if cfg.Stream.Endpoint == "" {
+		l.Infof("Check cancel stream disabled")
+	} else {
+		stream := stream.New(l, metrics, re, cfg.Stream.Endpoint)
+		streamDone, err = stream.ListenAndProcess(ctxqr)
+		if err != nil {
+			l.Errorf("error starting stream: %+v", err)
+			cancelqr()
+			return 1
+		}
 	}
 
 	var maxTimeNoMsg *time.Duration
@@ -206,12 +182,14 @@ func MainWithExitCode(bc BackendCreator) int {
 		l.Errorf("http server stopped with error: %+v", err)
 		return 1
 	}
-	// Wait for the stream to finish.
-	l.Debugf("waiting for the stream to stop")
-	err = <-streamDone
-	if err != nil && !errors.Is(err, context.Canceled) {
-		l.Errorf("stream stopped with error %+v", err)
-		return 1
+	if streamDone != nil {
+		// Wait for the stream to finish.
+		l.Debugf("waiting for the stream to stop")
+		err = <-streamDone
+		if err != nil && !errors.Is(err, context.Canceled) {
+			l.Errorf("stream stopped with error %+v", err)
+			return 1
+		}
 	}
 	l.Infof("agent finished gracefully")
 	return 0

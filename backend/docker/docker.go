@@ -7,12 +7,15 @@ package docker
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net"
 	"time"
 
-	"github.com/adevinta/dockerutils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -22,21 +25,29 @@ import (
 	"github.com/adevinta/vulcan-agent/backend"
 	"github.com/adevinta/vulcan-agent/config"
 	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/retryer"
 )
 
 const abortTimeout = 5 * time.Second
+const defaultDockerIfaceName = "docker0"
 
-// Client defines the shape of the docker client component needed by the docker
-// backend in order to be able to run checks.
-type Client interface {
-	Create(ctx context.Context, cfg dockerutils.RunConfig, name string) (contID string, err error)
-	ContainerStop(ctx context.Context, containerID string, timeout *time.Duration) error
-	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
-	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
-	ContainerWait(ctx context.Context, containerID string) (int64, error)
-	ContainerLogs(ctx context.Context, container string, options types.ContainerLogsOptions) (io.ReadCloser, error)
-	Pull(ctx context.Context, imageRef string) error
+// RunConfig contains the configuration for executing a check in a container.
+type RunConfig struct {
+	ContainerConfig       *container.Config
+	HostConfig            *container.HostConfig
+	NetConfig             *network.NetworkingConfig
+	ContainerStartOptions types.ContainerStartOptions
 }
+
+// ConfigUpdater allows to update the docker configuration just before the container creation.
+//  updater := func(params backend.RunParams, rc *RunConfig) error {
+// 	 // If the asset type is Hostname pass an extra env variable to the container.
+// 	 if params.AssetType == "Hostname" {
+// 	 	rc.ContainerConfig.Env = append(rc.ContainerConfig.Env, "FOO=BAR")
+// 	 }
+// 	 return nil
+//  }
+type ConfigUpdater func(backend.RunParams, *RunConfig) error
 
 // Retryer represents the functions used by the docker backend for retrying
 // docker registry operations.
@@ -50,45 +61,109 @@ type Docker struct {
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
-	cli       Client //DockerClient
+	cli       *client.Client
+	auth      types.AuthConfig
 	retryer   Retryer
+	updater   ConfigUpdater
 }
 
-// New created a new Docker backend using the given config, agent api addres and
-// CheckVars.
-func New(log log.Logger, cfg config.RegistryConfig, retryer Retryer, agentAddr string, vars backend.CheckVars) (*Docker, error) {
-	envCli, err := client.NewEnvClient()
+// getAgentAddr returns the current address of the agent API from the Docker network.
+// It will also return any errors encountered while doing so.
+func getAgentAddr(port, ifaceName string) (string, error) {
+	connAddr, err := net.ResolveTCPAddr("tcp", port)
+	if err != nil {
+		return "", err
+	}
+	if ifaceName == "" {
+		ifaceName = defaultDockerIfaceName
+	}
+	iface, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+		return "", err
+	}
+
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return "", err
+	}
+
+	for _, addr := range addrs {
+		ip, _, err := net.ParseCIDR(addr.String())
+		if err != nil {
+			return "", err
+		}
+
+		// Check if it is IPv4.
+		if ip.To4() != nil {
+			connAddr.IP = ip
+			return connAddr.String(), nil
+		}
+	}
+
+	return "", errors.New("failed to determine Docker agent IP address")
+}
+
+// NewBackend creates a new Docker backend using the given config, agent api addres and CheckVars.
+// A ConfigUpdater function can be passed to inspect/update the final docker RunConfig
+// before creating the container for each check.
+func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backend.Backend, error) {
+	var (
+		agentAddr string
+		err       error
+	)
+	if cfg.API.Host != "" {
+		agentAddr = cfg.API.Host + cfg.API.Port
+	} else {
+		agentAddr, err = getAgentAddr(cfg.API.Port, cfg.API.IName)
+		if err != nil {
+			return &Docker{}, err
+		}
+	}
+
+	cfgReg := cfg.Runtime.Docker.Registry
+	interval := cfgReg.BackoffInterval
+	retries := cfgReg.BackoffMaxRetries
+	re := retryer.NewRetryer(retries, interval, log)
+
+	envCli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return &Docker{}, err
 	}
 
-	cli := dockerutils.NewClient(envCli)
 	b := &Docker{
-		config:    cfg,
+		config:    cfg.Runtime.Docker.Registry,
 		agentAddr: agentAddr,
 		log:       log,
-		checkVars: vars,
-		cli:       cli,
-		retryer:   retryer,
+		checkVars: cfg.Check.Vars,
+		cli:       envCli,
+		retryer:   re,
+		updater:   updater,
 	}
-	if cfg.Server == "" {
+
+	if cfgReg.Server == "" {
 		return b, nil
 	}
 
-	pass := cfg.Pass
-	user := cfg.User
+	pass := cfgReg.Pass
+	user := cfgReg.User
 	if pass == "" {
-		creds, err := Credentials(cfg.Server)
+		creds, err := Credentials(cfgReg.Server)
 		if err != nil {
 			return nil, err
 		}
 		pass = creds.Secret
 		user = creds.Username
 	}
-	err = cli.Login(context.Background(), cfg.Server, user, pass)
+	auth := types.AuthConfig{
+		Username:      user,
+		Password:      pass,
+		ServerAddress: cfgReg.Server,
+	}
+	_, err = b.cli.RegistryLogin(context.Background(), auth)
 	if err != nil {
 		return nil, err
 	}
+	b.auth = auth
 	return b, nil
 }
 
@@ -109,7 +184,16 @@ func (b *Docker) Run(ctx context.Context, params backend.RunParams) (<-chan back
 
 func (b *Docker) run(ctx context.Context, params backend.RunParams, res chan<- backend.RunResult) {
 	cfg := b.getRunConfig(params)
-	contID, err := b.cli.Create(ctx, cfg, "")
+
+	if b.updater != nil {
+		err := b.updater(params, &cfg)
+		if err != nil {
+			res <- backend.RunResult{Error: err}
+			return
+		}
+	}
+	cc, err := b.cli.ContainerCreate(ctx, cfg.ContainerConfig, cfg.HostConfig, cfg.NetConfig, nil, "")
+	contID := cc.ID
 	if err != nil {
 		res <- backend.RunResult{Error: err}
 		return
@@ -130,9 +214,17 @@ func (b *Docker) run(ctx context.Context, params backend.RunParams, res chan<- b
 		return
 	}
 
+	resultC, errC := b.cli.ContainerWait(ctx, contID, "")
 	var exit int64
-	exit, err = b.cli.ContainerWait(ctx, contID)
-	b.log.Debugf("container with ID %s finished with exit code %d", contID, exit)
+	select {
+	case err = <-errC:
+	case result := <-resultC:
+		if result.Error == nil {
+			exit = result.StatusCode
+		} else {
+			err = fmt.Errorf("wait error %s", result.Error.Message)
+		}
+	}
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		err := fmt.Errorf("error running container for check %s: %w", params.CheckID, err)
 		res <- backend.RunResult{Error: err}
@@ -182,7 +274,23 @@ func (b Docker) getContainerlogs(ID string) ([]byte, error) {
 
 func (b Docker) pull(ctx context.Context, image string) error {
 	err := b.retryer.WithRetries("PullDockerImage", func() error {
-		return b.cli.Pull(ctx, image)
+		buf, err := json.Marshal(b.auth)
+		if err != nil {
+			return err
+		}
+		encodedAuth := base64.URLEncoding.EncodeToString(buf)
+		pullOpts := types.ImagePullOptions{
+			RegistryAuth: encodedAuth,
+		}
+		respBody, err := b.cli.ImagePull(ctx, image, pullOpts)
+		if err != nil {
+			return err
+		}
+		defer respBody.Close()
+		if _, err := io.Copy(ioutil.Discard, respBody); err != nil {
+			return err
+		}
+		return nil
 	})
 	return err
 }
@@ -190,10 +298,10 @@ func (b Docker) pull(ctx context.Context, image string) error {
 // getRunConfig will generate a docker.RunConfig for a given job.
 // It will inject the check options and target as environment variables.
 // It will return the generated docker.RunConfig.
-func (b *Docker) getRunConfig(params backend.RunParams) dockerutils.RunConfig {
+func (b *Docker) getRunConfig(params backend.RunParams) RunConfig {
 	b.log.Debugf("fetching check required variables %+v", params.RequiredVars)
 	vars := dockerVars(params.RequiredVars, b.checkVars)
-	return dockerutils.RunConfig{
+	return RunConfig{
 		ContainerConfig: &container.Config{
 			Hostname: params.CheckID,
 			Image:    params.Image,
