@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adevinta/vulcan-agent/backend"
+	"github.com/adevinta/vulcan-agent/config"
+	"github.com/adevinta/vulcan-agent/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
-
-	"github.com/adevinta/vulcan-agent/backend"
-	"github.com/adevinta/vulcan-agent/log"
 )
 
 func TestIntegrationDockerRun(t *testing.T) {
@@ -49,6 +49,9 @@ func TestIntegrationDockerRun(t *testing.T) {
 					panic(err)
 				}
 				b := &Docker{
+					config: config.RegistryConfig{
+						PullPolicy: config.PullPolicyNever,
+					},
 					agentAddr: "an addr",
 					log:       &log.NullLog{},
 					cli:       cli,
@@ -106,7 +109,6 @@ func TestIntegrationDockerRun(t *testing.T) {
 			if diff != "" {
 				t.Errorf("got!=want, diff %s", diff)
 			}
-
 		})
 	}
 }
@@ -121,6 +123,9 @@ func TestIntegrationDockerRunKillContainer(t *testing.T) {
 	}
 
 	b := &Docker{
+		config: config.RegistryConfig{
+			PullPolicy: config.PullPolicyNever,
+		},
 		agentAddr: "an addr",
 		log:       &log.NullLog{},
 		cli:       cli,
@@ -176,6 +181,9 @@ func TestIntegrationDockerDetectUnexpectedExit(t *testing.T) {
 	}
 
 	b := &Docker{
+		config: config.RegistryConfig{
+			PullPolicy: config.PullPolicyNever,
+		},
 		agentAddr: "an addr",
 		log:       &log.NullLog{},
 		cli:       cli,
@@ -224,6 +232,9 @@ func TestIntegrationDockerRunAbortGracefully(t *testing.T) {
 		panic(err)
 	}
 	b := &Docker{
+		config: config.RegistryConfig{
+			PullPolicy: config.PullPolicyNever,
+		},
 		agentAddr: "an addr",
 		log:       &log.NullLog{},
 		cli:       cli,
@@ -272,6 +283,100 @@ func TestIntegrationDockerRunAbortGracefully(t *testing.T) {
 	}
 }
 
+func TestIntegrationDockerFindImage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		panic(err)
+	}
+	b := &Docker{
+		config: config.RegistryConfig{
+			PullPolicy: config.PullPolicyNever,
+		},
+		agentAddr: "an addr",
+		log:       &log.NullLog{},
+		cli:       cli,
+	}
+	err = buildDockerImage("testdata/DockerfileSleepEcho", "vulcan-check")
+	if err != nil {
+		panic(err)
+	}
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a list of references
+	refs := []string{}
+	for _, reg := range []string{"", "docker.io/", "registry.com/", "dockerhub.com/"} {
+		for _, path := range []string{"", "vulcan/", "vul/can/"} {
+			for _, tag := range []string{"", ":tag", ":tag2", ":latest"} {
+				refs = append(refs, reg+path+"check"+tag)
+			}
+		}
+	}
+
+	tests := []struct {
+		image  string
+		valids []string
+	}{
+		{
+			image:  "check",
+			valids: []string{"check", "check:latest", "docker.io/check", "docker.io/check:latest"},
+		},
+		{
+			image:  "check:latest",
+			valids: []string{"check", "check:latest", "docker.io/check", "docker.io/check:latest"},
+		},
+		{
+			image:  "check:tag",
+			valids: []string{"check:tag", "docker.io/check:tag"},
+		},
+		{
+			image:  "vulcan/check:tag",
+			valids: []string{"vulcan/check:tag", "docker.io/vulcan/check:tag"},
+		},
+		{
+			image:  "vul/can/check:tag",
+			valids: []string{"vul/can/check:tag", "docker.io/vul/can/check:tag"},
+		},
+		{
+			image:  "registry.com/vulcan/check:tag",
+			valids: []string{"registry.com/vulcan/check:tag"},
+		},
+	}
+	for _, c := range tests {
+		tagDockerImage("vulcan-check", c.image)
+
+		// Check if the valid references are valid.
+		for _, v := range c.valids {
+			if exists, _ := b.imageExists(context.Background(), v); !exists {
+				t.Errorf("image:%s %s should exists", c.image, v)
+			}
+		}
+
+		// Validate against all the references
+		for _, r := range refs {
+			valid := false
+			for _, v := range c.valids {
+				if v == r {
+					valid = true
+				}
+			}
+
+			// Skip if it is valid.
+			if !valid {
+				// This reference should'n exists
+				if exists, _ := b.imageExists(context.Background(), r); exists {
+					t.Errorf("image:%s %s should not exists", c.image, r)
+				}
+			}
+		}
+		removeDockerImage(c.image)
+	}
+}
+
 func buildDockerImage(dockerFile string, tag string) (err error) {
 	path, err := filepath.Abs(dockerFile)
 	if err != nil {
@@ -285,6 +390,32 @@ func buildDockerImage(dockerFile string, tag string) (err error) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func tagDockerImage(image string, tag string) (err error) {
+	args := []string{"tag", image, tag}
+	cmd := exec.Command("docker", args...)
+	cmd.Env = os.Environ()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err = cmd.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func removeDockerImage(image string) (err error) {
+	args := []string{"rmi", image}
+	cmd := exec.Command("docker", args...)
+	cmd.Env = os.Environ()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err = cmd.Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func removeContainer(name string) (err error) {

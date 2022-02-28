@@ -51,6 +51,7 @@ type CheckRaw struct {
 	CheckID   string
 	StartTime time.Time
 }
+
 type inMemChecksUpdater struct {
 	updates []stateupdater.CheckState
 	raws    []CheckRaw
@@ -90,7 +91,6 @@ func (im *inMemChecksUpdater) CheckStatusTerminal(ID string) bool {
 }
 
 func (im *inMemChecksUpdater) DeleteCheckStatusTerminal(ID string) {
-
 }
 
 type mockChecksUpdater struct {
@@ -166,7 +166,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -243,7 +243,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -313,7 +313,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							results := backend.RunResult{
 								Error: errUnexpectedTest,
@@ -356,7 +356,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -430,7 +430,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -504,7 +504,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -562,7 +562,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -598,7 +598,6 @@ func TestRunner_ProcessMessage(t *testing.T) {
 						return false
 					},
 					checkTerminalDeleter: func(string) {
-
 					},
 				},
 			},
@@ -619,7 +618,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							results := backend.RunResult{
 								Output: []byte("logs"),
@@ -675,7 +674,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -732,7 +731,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			fields: fields{
 				Backend: &mockBackend{
 					CheckRunner: func(ctx context.Context, params backend.RunParams) (<-chan backend.RunResult, error) {
-						var res = make(chan backend.RunResult)
+						res := make(chan backend.RunResult)
 						go func() {
 							output, err := json.Marshal(params)
 							if err != nil {
@@ -821,7 +820,6 @@ func TestRunner_ProcessMessage(t *testing.T) {
 			if stateDiff != "" {
 				t.Fatalf("want state!=got state, diff %s", stateDiff)
 			}
-
 		})
 	}
 }
@@ -844,4 +842,68 @@ func mustMarshalRunParams(params backend.RunParams) []byte {
 
 func str2ptr(str string) *string {
 	return &str
+}
+
+func TestRunner_getChecktypeInfo(t *testing.T) {
+	tests := []struct {
+		image    string
+		wants    []string
+		wantsErr bool
+	}{
+		{
+			image: "check",
+			wants: []string{"check", "latest"},
+		},
+		{
+			image: "check:1",
+			wants: []string{"check", "1"},
+		},
+		{
+			image: "vulcan/check1",
+			wants: []string{"vulcan/check1", "latest"},
+		},
+		{ // Should be error?
+			image: "docker.io/check1",
+			wants: []string{"check1", "latest"},
+		},
+		{
+			image: "docker.io/vulcansec/check1",
+			wants: []string{"vulcansec/check1", "latest"},
+		},
+		{
+			image: "artifactory.com/check1",
+			wants: []string{"artifactory.com/check1", "latest"},
+		},
+		{
+			image: "artifactory.com/vulcan/check1",
+			wants: []string{"artifactory.com/vulcan/check1", "latest"},
+		},
+		{
+			image: "artifactory.com/vulcan/check1:1",
+			wants: []string{"artifactory.com/vulcan/check1", "1"},
+		},
+		{
+			image: "artifactory.com:1234/vulcan/check1:1",
+			wants: []string{"artifactory.com:1234/vulcan/check1", "1"},
+		},
+		{
+			image:    "http://artifactory.com:1234/vulcan/check1:1",
+			wants:    []string{"", ""},
+			wantsErr: true,
+		},
+		{
+			image:    "image with spaces",
+			wants:    []string{"", ""},
+			wantsErr: true,
+		},
+	}
+	for _, c := range tests {
+		n, v, err := getChecktypeInfo(c.image)
+		if c.wantsErr != (err != nil) {
+			t.Errorf("image:%s want error %v and got %v", c.image, c.wantsErr, err)
+		}
+		if diff := cmp.Diff(c.wants, []string{n, v}); diff != "" {
+			t.Errorf("image:%s want state!=got state, diff %s", c.image, diff)
+		}
+	}
 }
