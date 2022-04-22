@@ -51,7 +51,7 @@ type RunConfig struct {
 // 	 }
 // 	 return nil
 //  }
-type ConfigUpdater func(backend.RunParams, *RunConfig) error
+type ConfigUpdater func(*backend.RunParams, *RunConfig) error
 
 // Retryer represents the functions used by the docker backend for retrying
 // docker registry operations.
@@ -307,7 +307,7 @@ func (b *Docker) run(ctx context.Context, params backend.RunParams, res chan<- b
 	cfg := b.getRunConfig(params)
 
 	if b.updater != nil {
-		err := b.updater(params, &cfg)
+		err := b.updater(&params, &cfg)
 		if err != nil {
 			res <- backend.RunResult{Error: err}
 			return
