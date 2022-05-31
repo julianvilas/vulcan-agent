@@ -4,8 +4,8 @@ go 1.18
 
 require (
 	github.com/BurntSushi/toml v1.1.0
-	github.com/adevinta/vulcan-metrics-client v0.0.0-20210317131634-8775c25303f7
-	github.com/adevinta/vulcan-report v0.0.0-20211117082128-cadc974cc14c
+	github.com/adevinta/vulcan-metrics-client v1.0.0-rc1
+	github.com/adevinta/vulcan-report v1.0.0-rc1
 	github.com/aws/aws-sdk-go v1.44.21
 	github.com/docker/cli v20.10.16+incompatible
 	github.com/docker/distribution v2.8.1+incompatible
@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	github.com/DataDog/datadog-go v3.7.1+incompatible // indirect
+	github.com/DataDog/datadog-go v4.8.3+incompatible // indirect
 	github.com/Microsoft/go-winio v0.5.2 // indirect
 	github.com/docker/docker-credential-helpers v0.6.4 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
