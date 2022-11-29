@@ -1,0 +1,25 @@
+name: Push
+
+on:
+  push:
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: scan local repo with local vulcan.yaml
+        id: scan
+        uses: adevinta/vulcan-local-action@first
+        with:
+          target-images: ${{ steps.build.outputs.image }}
+
+      - name: Show report
+        shell: bash
+        if: ${{ steps.scan.outputs.status != 0 }}
+        run: |
+          echo "Report ${{ steps.scan.outputs.report }} - status ${{ steps.scan.outputs.status }}"
+          jq < ${{ steps.scan.outputs.report }}
