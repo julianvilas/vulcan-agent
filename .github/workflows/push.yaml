@@ -16,6 +16,7 @@ jobs:
         uses: adevinta/vulcan-local-action@first
         with:
           target-images: ${{ steps.build.outputs.image }}
+          version: master
 
       - name: Show report
         shell: bash
