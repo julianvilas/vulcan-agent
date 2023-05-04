@@ -22,6 +22,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 func TestIntegrationDockerRun(t *testing.T) {
@@ -44,7 +45,7 @@ func TestIntegrationDockerRun(t *testing.T) {
 		{
 			name: "ExecutesADockerContainer",
 			setup: func() *Docker {
-				cli, err := client.NewClientWithOpts(client.FromEnv)
+				cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 				if err != nil {
 					panic(err)
 				}
@@ -117,7 +118,7 @@ func TestIntegrationDockerRunKillContainer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode")
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -127,7 +128,7 @@ func TestIntegrationDockerRunKillContainer(t *testing.T) {
 			PullPolicy: config.PullPolicyNever,
 		},
 		agentAddr: "an addr",
-		log:       &log.NullLog{},
+		log:       logrus.New(),
 		cli:       cli,
 	}
 	err = buildDockerImage("testdata/DockerfileSleep", "vulcan-check")
@@ -175,7 +176,7 @@ func TestIntegrationDockerDetectUnexpectedExit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode")
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -185,7 +186,7 @@ func TestIntegrationDockerDetectUnexpectedExit(t *testing.T) {
 			PullPolicy: config.PullPolicyNever,
 		},
 		agentAddr: "an addr",
-		log:       &log.NullLog{},
+		log:       logrus.New(),
 		cli:       cli,
 	}
 	err = buildDockerImage("testdata/DockerfileSleep", "vulcan-check")
@@ -227,7 +228,7 @@ func TestIntegrationDockerRunAbortGracefully(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode")
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -287,7 +288,7 @@ func TestIntegrationDockerFindImage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode")
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -351,7 +352,11 @@ func TestIntegrationDockerFindImage(t *testing.T) {
 
 		// Check if the valid references are valid.
 		for _, v := range c.valids {
-			if exists, _ := b.imageExists(context.Background(), v); !exists {
+			exists, err := b.imageExists(context.Background(), v)
+			if err != nil {
+				t.Errorf("image:%s %s error:%+v", c.image, v, err)
+			}
+			if !exists {
 				t.Errorf("image:%s %s should exists", c.image, v)
 			}
 		}
@@ -367,8 +372,11 @@ func TestIntegrationDockerFindImage(t *testing.T) {
 
 			// Skip if it is valid.
 			if !valid {
-				// This reference should'n exists
-				if exists, _ := b.imageExists(context.Background(), r); exists {
+				exists, err := b.imageExists(context.Background(), r)
+				if err != nil {
+					t.Errorf("image:%s %s error:%+v", c.image, r, err)
+				}
+				if exists {
 					t.Errorf("image:%s %s should not exists", c.image, r)
 				}
 			}
