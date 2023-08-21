@@ -170,13 +170,18 @@ func run(cfg config.Config, jrunner *jobrunner.Runner, updater api.CheckStateUpd
 	api := api.New(logger, updater, stats)
 	router := httprouter.New()
 	httpapi.NewREST(logger, api, router)
-	srv := http.Server{
-		Addr:    cfg.API.Port,
-		Handler: router,
-	}
+
+	srv := http.Server{Handler: router}
+
 	httpDone := make(chan error)
 	go func() {
-		err := srv.ListenAndServe()
+		var err error
+		if cfg.API.Listener != nil {
+			err = srv.Serve(cfg.API.Listener)
+		} else {
+			srv.Addr = cfg.API.Port
+			err = srv.ListenAndServe()
+		}
 		httpDone <- err
 		close(httpDone)
 	}()
@@ -185,7 +190,14 @@ func run(cfg config.Config, jrunner *jobrunner.Runner, updater api.CheckStateUpd
 	qrdone := jobsQueue.StartReading(ctx)
 	metricsDone := metrics.StartPolling(ctx)
 
-	logger.Infof("agent running on address %s", srv.Addr)
+	var agentAddr string
+	if cfg.API.Listener != nil {
+		agentAddr = cfg.API.Listener.Addr().String()
+	} else {
+		agentAddr = cfg.API.Port
+	}
+	logger.Infof("agent running on address %s", agentAddr)
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 

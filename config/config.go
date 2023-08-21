@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/BurntSushi/toml"
@@ -73,9 +74,18 @@ type S3Writer struct {
 
 // APIConfig defines the configuration for the agent API.
 type APIConfig struct {
-	Port  string `json:"port"`               // Port where the api for for the check should listen on
-	IName string `json:"iname" toml:"iname"` // Interface name that defines the ip a check should use to reach the agent api.
-	Host  string `json:"host" toml:"host"`   // Hostname a check should use to reach the agent. Overrides the IName config param.
+	// Port where the API for the check should listen on.
+	Port string `json:"port"`
+
+	// Listener used by the agent to serve its API. It takes
+	// precedence over the Port field. It is closed by the agent.
+	Listener net.Listener
+
+	// Interface name that defines the IP a check should use to reach the agent API.
+	IName string `json:"iname" toml:"iname"`
+
+	// Host a check should use to reach the agent. Overrides the IName config param.
+	Host string `json:"host" toml:"host"`
 }
 
 // CheckConfig defines the configuration for the checks.
