@@ -74,7 +74,7 @@ type S3Writer struct {
 
 // APIConfig defines the configuration for the agent API.
 type APIConfig struct {
-	// Port where the API for the check should listen on.
+	// Port where the agent API should listen on.
 	Port string `json:"port"`
 
 	// Listener used by the agent to serve its API. It takes
