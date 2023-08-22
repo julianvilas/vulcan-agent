@@ -100,16 +100,45 @@ type Docker struct {
 	auths     registryAuths
 }
 
-// getAgentAddr returns the current address of the agent API from the Docker network.
-// It will also return any errors encountered while doing so.
-func getAgentAddr(port, ifaceName string) (string, error) {
+// getAgentAddr returns the address where Vulcan checks can find the
+// agent's API in the Docker network.
+func getAgentAddr(cfg config.APIConfig) (string, error) {
+	var agentPort string
+	if cfg.Listener != nil {
+		addr := cfg.Listener.Addr().String()
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return "", fmt.Errorf("split host port %q: %w", addr, err)
+		}
+		agentPort = ":" + port
+	} else {
+		agentPort = cfg.Port
+	}
+
+	var err error
+	var agentAddr string
+	if cfg.Host != "" {
+		agentAddr = cfg.Host + agentPort
+	} else {
+		agentAddr, err = getIfaceAddr(agentPort, cfg.IName)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return agentAddr, nil
+}
+
+func getIfaceAddr(port, ifaceName string) (string, error) {
 	connAddr, err := net.ResolveTCPAddr("tcp", port)
 	if err != nil {
 		return "", err
 	}
+
 	if ifaceName == "" {
 		ifaceName = defaultDockerIfaceName
 	}
+
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
 		return "", err
@@ -140,17 +169,9 @@ func getAgentAddr(port, ifaceName string) (string, error) {
 // A ConfigUpdater function can be passed to inspect/update the final docker RunConfig
 // before creating the container for each check.
 func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backend.Backend, error) {
-	var (
-		agentAddr string
-		err       error
-	)
-	if cfg.API.Host != "" {
-		agentAddr = cfg.API.Host + cfg.API.Port
-	} else {
-		agentAddr, err = getAgentAddr(cfg.API.Port, cfg.API.IName)
-		if err != nil {
-			return &Docker{}, err
-		}
+	agentAddr, err := getAgentAddr(cfg.API)
+	if err != nil {
+		return &Docker{}, fmt.Errorf("get agent addr: %w", err)
 	}
 
 	cfgReg := cfg.Runtime.Docker.Registry
