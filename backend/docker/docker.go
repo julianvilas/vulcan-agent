@@ -20,7 +20,9 @@ import (
 	"github.com/adevinta/vulcan-agent/config"
 	"github.com/adevinta/vulcan-agent/log"
 	"github.com/adevinta/vulcan-agent/retryer"
+	"github.com/docker/cli/cli/command"
 	dockercliconfig "github.com/docker/cli/cli/config"
+	"github.com/docker/cli/cli/flags"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -94,7 +96,7 @@ type Docker struct {
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
-	cli       *client.Client
+	cli       client.APIClient
 	retryer   Retryer
 	updater   ConfigUpdater
 	auths     registryAuths
@@ -179,7 +181,7 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 	retries := cfgReg.BackoffMaxRetries
 	re := retryer.NewRetryer(retries, interval, log)
 
-	envCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := command.NewAPIClientFromFlags(flags.NewClientOptions(), dockercliconfig.LoadDefaultConfigFile(io.Discard))
 	if err != nil {
 		return &Docker{}, err
 	}
@@ -189,7 +191,7 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 		agentAddr: agentAddr,
 		log:       log,
 		checkVars: cfg.Check.Vars,
-		cli:       envCli,
+		cli:       cli,
 		retryer:   re,
 		updater:   updater,
 		auths: registryAuths{
