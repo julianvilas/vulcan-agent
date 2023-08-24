@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/tlsconfig"
 )
 
 const (
@@ -181,7 +184,7 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 	retries := cfgReg.BackoffMaxRetries
 	re := retryer.NewRetryer(retries, interval, log)
 
-	cli, err := command.NewAPIClientFromFlags(flags.NewClientOptions(), dockercliconfig.LoadDefaultConfigFile(io.Discard))
+	cli, err := command.NewAPIClientFromFlags(defaultClientOptions(), dockercliconfig.LoadDefaultConfigFile(io.Discard))
 	if err != nil {
 		return &Docker{}, err
 	}
@@ -226,6 +229,30 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 		}
 	}
 	return b, nil
+}
+
+func defaultClientOptions() *flags.ClientOptions {
+	tlsVerify := os.Getenv(client.EnvTLSVerify) != ""
+
+	var tlsopts *tlsconfig.Options
+	if tlsVerify {
+		certPath := os.Getenv(client.EnvOverrideCertPath)
+		if certPath == "" {
+			certPath = dockercliconfig.Dir()
+		}
+		tlsopts = &tlsconfig.Options{
+			CAFile:   filepath.Join(certPath, flags.DefaultCaFile),
+			CertFile: filepath.Join(certPath, flags.DefaultCertFile),
+			KeyFile:  filepath.Join(certPath, flags.DefaultKeyFile),
+		}
+	}
+
+	opts := &flags.ClientOptions{
+		TLS:        tlsVerify,
+		TLSVerify:  tlsVerify,
+		TLSOptions: tlsopts,
+	}
+	return opts
 }
 
 // addRegistryAuth adds the auth to the map only if valid.
