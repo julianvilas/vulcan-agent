@@ -436,7 +436,7 @@ func removeContainer(name string) (err error) {
 	return cmd.Run()
 }
 
-func waitForContainer(cli *client.Client, id string) (string, error) {
+func waitForContainer(cli client.APIClient, id string) (string, error) {
 	filter := filters.NewArgs(filters.KeyValuePair{
 		Key:   "label",
 		Value: fmt.Sprintf("CheckID=%s", id),

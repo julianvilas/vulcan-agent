@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,13 +22,16 @@ import (
 	"github.com/adevinta/vulcan-agent/config"
 	"github.com/adevinta/vulcan-agent/log"
 	"github.com/adevinta/vulcan-agent/retryer"
+	"github.com/docker/cli/cli/command"
 	dockercliconfig "github.com/docker/cli/cli/config"
+	"github.com/docker/cli/cli/flags"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/tlsconfig"
 )
 
 const (
@@ -94,7 +99,7 @@ type Docker struct {
 	agentAddr string
 	checkVars backend.CheckVars
 	log       log.Logger
-	cli       *client.Client
+	cli       client.APIClient
 	retryer   Retryer
 	updater   ConfigUpdater
 	auths     registryAuths
@@ -179,7 +184,7 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 	retries := cfgReg.BackoffMaxRetries
 	re := retryer.NewRetryer(retries, interval, log)
 
-	envCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := command.NewAPIClientFromFlags(defaultClientOptions(), dockercliconfig.LoadDefaultConfigFile(io.Discard))
 	if err != nil {
 		return &Docker{}, err
 	}
@@ -189,7 +194,7 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 		agentAddr: agentAddr,
 		log:       log,
 		checkVars: cfg.Check.Vars,
-		cli:       envCli,
+		cli:       cli,
 		retryer:   re,
 		updater:   updater,
 		auths: registryAuths{
@@ -224,6 +229,30 @@ func NewBackend(log log.Logger, cfg config.Config, updater ConfigUpdater) (backe
 		}
 	}
 	return b, nil
+}
+
+func defaultClientOptions() *flags.ClientOptions {
+	tlsVerify := os.Getenv(client.EnvTLSVerify) != ""
+
+	var tlsopts *tlsconfig.Options
+	if tlsVerify {
+		certPath := os.Getenv(client.EnvOverrideCertPath)
+		if certPath == "" {
+			certPath = dockercliconfig.Dir()
+		}
+		tlsopts = &tlsconfig.Options{
+			CAFile:   filepath.Join(certPath, flags.DefaultCaFile),
+			CertFile: filepath.Join(certPath, flags.DefaultCertFile),
+			KeyFile:  filepath.Join(certPath, flags.DefaultKeyFile),
+		}
+	}
+
+	opts := &flags.ClientOptions{
+		TLS:        tlsVerify,
+		TLSVerify:  tlsVerify,
+		TLSOptions: tlsopts,
+	}
+	return opts
 }
 
 // addRegistryAuth adds the auth to the map only if valid.
