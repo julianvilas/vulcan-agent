@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/config"
-	"github.com/adevinta/vulcan-agent/log"
-	"github.com/adevinta/vulcan-agent/queue"
+	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/log"
+	"github.com/adevinta/vulcan-agent/v2/queue"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"

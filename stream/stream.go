@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/gorilla/websocket"
 )
 

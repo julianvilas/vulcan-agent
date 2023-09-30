@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/config"
+	"github.com/adevinta/vulcan-agent/v2/config"
 	"github.com/sirupsen/logrus"
 )
 

@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/lestrrat-go/backoff"
 )
 

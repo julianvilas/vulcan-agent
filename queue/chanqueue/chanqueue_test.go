@@ -13,7 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/adevinta/vulcan-agent/queue"
+	"github.com/adevinta/vulcan-agent/v2/queue"
 )
 
 func TestChanQueue(t *testing.T) {

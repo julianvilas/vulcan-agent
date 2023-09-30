@@ -10,8 +10,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/adevinta/vulcan-agent/api"
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/api"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/julienschmidt/httprouter"
 )
 

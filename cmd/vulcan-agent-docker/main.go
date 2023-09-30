@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/adevinta/vulcan-agent/agent"
-	"github.com/adevinta/vulcan-agent/backend/docker"
-	"github.com/adevinta/vulcan-agent/config"
-	"github.com/adevinta/vulcan-agent/log"
-	"github.com/adevinta/vulcan-agent/storage"
-	"github.com/adevinta/vulcan-agent/storage/s3"
+	"github.com/adevinta/vulcan-agent/v2/agent"
+	"github.com/adevinta/vulcan-agent/v2/backend/docker"
+	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/log"
+	"github.com/adevinta/vulcan-agent/v2/storage"
+	"github.com/adevinta/vulcan-agent/v2/storage/s3"
 )
 
 func main() {

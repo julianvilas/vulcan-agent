@@ -13,8 +13,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/config"
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"

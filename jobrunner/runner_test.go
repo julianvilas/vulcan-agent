@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/backend"
-	"github.com/adevinta/vulcan-agent/log"
-	"github.com/adevinta/vulcan-agent/queue"
-	"github.com/adevinta/vulcan-agent/stateupdater"
+	"github.com/adevinta/vulcan-agent/v2/backend"
+	"github.com/adevinta/vulcan-agent/v2/log"
+	"github.com/adevinta/vulcan-agent/v2/queue"
+	"github.com/adevinta/vulcan-agent/v2/stateupdater"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 )

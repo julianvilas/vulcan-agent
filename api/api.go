@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/log"
-	"github.com/adevinta/vulcan-agent/stateupdater"
+	"github.com/adevinta/vulcan-agent/v2/log"
+	"github.com/adevinta/vulcan-agent/v2/stateupdater"
 	report "github.com/adevinta/vulcan-report"
 )
 

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"

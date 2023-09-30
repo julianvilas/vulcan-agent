@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/backend"
-	"github.com/adevinta/vulcan-agent/config"
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/backend"
+	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"

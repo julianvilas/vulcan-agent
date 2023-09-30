@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/config"
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/log"
 	metrics "github.com/adevinta/vulcan-metrics-client"
 )
 

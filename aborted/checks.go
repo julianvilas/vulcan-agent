@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/adevinta/vulcan-agent/log"
-	"github.com/adevinta/vulcan-agent/retryer"
+	"github.com/adevinta/vulcan-agent/v2/log"
+	"github.com/adevinta/vulcan-agent/v2/retryer"
 )
 
 // Retryer represents the functions used by the Checks struct for retrying http

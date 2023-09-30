@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adevinta/vulcan-agent/queue"
+	"github.com/adevinta/vulcan-agent/v2/queue"
 )
 
 // ChanQueue represents a queue.

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/adevinta/vulcan-agent/log"
+	"github.com/adevinta/vulcan-agent/v2/log"
 )
 
 var errTest = errors.New("test")
