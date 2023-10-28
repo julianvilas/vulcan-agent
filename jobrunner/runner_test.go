@@ -15,8 +15,8 @@ import (
 
 	"github.com/adevinta/vulcan-agent/v2/backend"
 	"github.com/adevinta/vulcan-agent/v2/log"
-	"github.com/adevinta/vulcan-agent/v2/queue"
 	"github.com/adevinta/vulcan-agent/v2/stateupdater"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 )
@@ -182,7 +182,7 @@ func (ia *inMemAbortedChecks) IsAborted(ID string) (bool, error) {
 func TestRunner_ProcessMessage(t *testing.T) {
 	type fields struct {
 		Backend                  backend.Backend
-		Tokens                   chan interface{}
+		Tokens                   chan Token
 		Logger                   log.Logger
 		CheckUpdater             CheckStateUpdater
 		cAborter                 *checkAborter
@@ -191,8 +191,8 @@ func TestRunner_ProcessMessage(t *testing.T) {
 		maxMessageProcessedTimes int
 	}
 	type args struct {
-		msg   queue.Message
-		token interface{}
+		msg   Message
+		token Token
 	}
 	tests := []struct {
 		name      string
@@ -225,7 +225,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater: &inMemChecksUpdater{
 					terminalStatus: map[string]stateupdater.CheckState{
@@ -237,7 +237,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -299,12 +299,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -365,12 +365,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -412,12 +412,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -485,12 +485,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -562,12 +562,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					},
 				},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -618,7 +618,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					},
 				},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater: &mockChecksUpdater{
 					stateUpdater: func(cs stateupdater.CheckState) error {
@@ -638,7 +638,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -671,13 +671,13 @@ func TestRunner_ProcessMessage(t *testing.T) {
 					aborted: map[string]struct{}{},
 				},
 				defaultTimeout:           time.Duration(10 * time.Second),
-				Tokens:                   make(chan interface{}, 10),
+				Tokens:                   make(chan Token, 10),
 				Logger:                   &log.NullLog{},
 				CheckUpdater:             &inMemChecksUpdater{},
 				maxMessageProcessedTimes: 1,
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -732,12 +732,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				defaultTimeout:           time.Duration(10 * time.Second),
 				maxMessageProcessedTimes: 1,
-				Tokens:                   make(chan interface{}, 10),
+				Tokens:                   make(chan Token, 10),
 				Logger:                   &log.NullLog{},
 				CheckUpdater:             &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body:      string(mustMarshal(runJobFixture1)),
 					TimesRead: 2,
 				},
@@ -786,12 +786,12 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},
@@ -857,7 +857,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted:        &inMemAbortedChecks{make(map[string]struct{}), nil},
 				defaultTimeout: time.Duration(10 * time.Second),
-				Tokens:         make(chan interface{}, 10),
+				Tokens:         make(chan Token, 10),
 				Logger:         &log.NullLog{},
 				CheckUpdater: &inMemChecksUpdater{
 					terminalStatus: map[string]stateupdater.CheckState{
@@ -870,7 +870,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: queue.Message{
+				msg: Message{
 					Body: string(mustMarshal(runJobFixture1)),
 				},
 				token: token{},

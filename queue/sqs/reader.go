@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/adevinta/vulcan-agent/v2/config"
+	"github.com/adevinta/vulcan-agent/v2/jobrunner"
 	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/adevinta/vulcan-agent/v2/queue"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -29,6 +31,7 @@ const (
 	MaxQuantumDelta = 3 // in seconds
 )
 
+// Reader implements [queue.Reader] over an AWS SQS queue.
 type Reader struct {
 	*sync.RWMutex
 	sqs                   sqsiface.SQSAPI
@@ -200,7 +203,7 @@ func (r *Reader) setLastMessageReceived(t *time.Time) {
 	r.Unlock()
 }
 
-func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}) {
+func (r *Reader) processAndTrack(msg *sqs.Message, token jobrunner.Token) {
 	defer func() {
 		// Decrement the number of messages being processed, see:
 		// https://golang.org/src/sync/atomic/doc.go?s=3841:3896#L87
@@ -228,7 +231,7 @@ func (r *Reader) processAndTrack(msg *sqs.Message, token interface{}) {
 		}
 		return
 	}
-	m := queue.Message{Body: *msg.Body}
+	m := jobrunner.Message{Body: *msg.Body}
 	var n int
 	if rc, ok := msg.Attributes["ApproximateReceiveCount"]; ok && rc != nil {
 		n, err = strconv.Atoi(*rc)

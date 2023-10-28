@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adevinta/vulcan-agent/v2/jobrunner"
 	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/adevinta/vulcan-agent/v2/queue"
+
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
@@ -103,8 +105,8 @@ func (sq *InMemSQS) DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMes
 type messageProcessorMock struct {
 	tokens         chan interface{}
 	freeTokens     func() chan interface{}
-	Messages       []queue.Message
-	processMessage func(m queue.Message, token interface{}) <-chan bool
+	Messages       []jobrunner.Message
+	processMessage func(m jobrunner.Message, token interface{}) <-chan bool
 }
 
 func (mp *messageProcessorMock) FreeTokens() chan interface{} {
@@ -114,7 +116,7 @@ func (mp *messageProcessorMock) FreeTokens() chan interface{} {
 	return mp.tokens
 }
 
-func (mp *messageProcessorMock) ProcessMessage(m queue.Message, token interface{}) <-chan bool {
+func (mp *messageProcessorMock) ProcessMessage(m jobrunner.Message, token interface{}) <-chan bool {
 	mp.Messages = append(mp.Messages, m)
 	return mp.processMessage(m, token)
 }
@@ -167,21 +169,15 @@ func TestReader_StartReading(t *testing.T) {
 				receiveParams:         sqs.ReceiveMessageInput{},
 				log:                   &log.NullLog{},
 				wg:                    &sync.WaitGroup{},
-				Processor: &messageProcessorMock{
-					freeTokens: func() chan interface{} {
-						res := make(chan interface{}, 10)
-						res <- struct{}{}
-						return res
-					},
-					processMessage: func(msg queue.Message, token interface{}) <-chan bool {
+				Processor: jobrunner.NewMessageProcessorMock(10, 1,
+					func(msg jobrunner.Message, token jobrunner.Token) <-chan bool {
 						c := make(chan bool, 1)
 						go func() {
 							time.Sleep(3 * time.Second)
 							c <- true
 						}()
 						return c
-					},
-				},
+					}),
 			},
 			runCtxProvider: func() context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -206,8 +202,8 @@ func TestReader_StartReading(t *testing.T) {
 					},
 				}
 				diffSqs := cmp.Diff(wantSqs, *gotSqs, cmpopts.IgnoreFields(InMemSQS{}, "Mutex"))
-				gotMsgs := r.Processor.(*messageProcessorMock).Messages
-				wantMsgs := []queue.Message{
+				gotMsgs := r.Processor.(*jobrunner.MessageProcessorMock).Messages
+				wantMsgs := []jobrunner.Message{
 					{Body: "msg1", TimesRead: 1},
 				}
 				diffMsgs := cmp.Diff(wantMsgs, gotMsgs)
@@ -254,21 +250,15 @@ func TestReader_StartReading(t *testing.T) {
 				receiveParams:         sqs.ReceiveMessageInput{},
 				log:                   &log.NullLog{},
 				wg:                    &sync.WaitGroup{},
-				Processor: &messageProcessorMock{
-					freeTokens: func() chan interface{} {
-						res := make(chan interface{}, 10)
-						res <- struct{}{}
-						return res
-					},
-					processMessage: func(q queue.Message, token interface{}) <-chan bool {
+				Processor: jobrunner.NewMessageProcessorMock(10, 1,
+					func(msg jobrunner.Message, token jobrunner.Token) <-chan bool {
 						c := make(chan bool, 1)
 						go func() {
 							time.Sleep(3 * time.Second)
 							c <- true
 						}()
 						return c
-					},
-				},
+					}),
 			},
 			runCtxProvider: func() context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -330,21 +320,16 @@ func TestReader_StartReading(t *testing.T) {
 				receiveParams:         sqs.ReceiveMessageInput{},
 				log:                   &log.NullLog{},
 				wg:                    &sync.WaitGroup{},
-				Processor: &messageProcessorMock{
-					freeTokens: func() chan interface{} {
-						res := make(chan interface{}, 10)
-						res <- struct{}{}
-						return res
-					},
-					processMessage: func(q queue.Message, token interface{}) <-chan bool {
+
+				Processor: jobrunner.NewMessageProcessorMock(10, 1,
+					func(msg jobrunner.Message, token jobrunner.Token) <-chan bool {
 						c := make(chan bool, 1)
 						go func() {
 							time.Sleep(1 * time.Second)
 							c <- false
 						}()
 						return c
-					},
-				},
+					}),
 			},
 			runCtxProvider: func() context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -390,13 +375,10 @@ func TestReader_StartReading(t *testing.T) {
 				receiveParams:         sqs.ReceiveMessageInput{},
 				log:                   &log.NullLog{},
 				wg:                    &sync.WaitGroup{},
-				Processor: &messageProcessorMock{
-					freeTokens: func() chan interface{} {
-						res := make(chan interface{}, 10)
-						res <- struct{}{}
-						return res
-					},
-				},
+				Processor: jobrunner.NewMessageProcessorMock(10, 1,
+					func(_ jobrunner.Message, _ jobrunner.Token) <-chan bool {
+						return nil
+					}),
 				maxTimeNoRead: durationToPtr(time.Duration(2) * time.Second),
 			},
 			runCtxProvider: func() context.Context {

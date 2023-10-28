@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adevinta/vulcan-agent/v2/jobrunner"
 	"github.com/adevinta/vulcan-agent/v2/queue"
 )
 
@@ -20,7 +21,7 @@ type ChanQueue struct {
 	// processing messages.
 	MaxTimeNoRead time.Duration
 
-	c    chan queue.Message
+	c    chan jobrunner.Message
 	proc queue.MessageProcessor
 
 	// mu protects the fields below.
@@ -35,7 +36,7 @@ type ChanQueue struct {
 // returns an error and stops reading.
 func New(proc queue.MessageProcessor) *ChanQueue {
 	return &ChanQueue{
-		c:             make(chan queue.Message),
+		c:             make(chan jobrunner.Message),
 		proc:          proc,
 		mu:            sync.RWMutex{},
 		MaxTimeNoRead: 10 * time.Second,
@@ -100,7 +101,7 @@ loop:
 // [queue.MessageProcessor]. If it is not able to get a message in the
 // time specified by ChanQueue.MaxTimeNoRead it returns a
 // [queue.ErrMaxTimeNoRead] error.
-func (q *ChanQueue) process(ctx context.Context, token any) (err error) {
+func (q *ChanQueue) process(ctx context.Context, token jobrunner.Token) (err error) {
 	select {
 	case msg := <-q.c:
 		q.setLastReadAt(time.Now())
@@ -123,7 +124,7 @@ func (q *ChanQueue) process(ctx context.Context, token any) (err error) {
 
 // returnToken returns a token. It panics if the free tokens channel
 // blocks.
-func (q *ChanQueue) returnToken(token any) {
+func (q *ChanQueue) returnToken(token jobrunner.Token) {
 	select {
 	case q.proc.FreeTokens() <- token:
 	default:
@@ -158,13 +159,13 @@ func (q *ChanQueue) SetMessageProcessor(proc queue.MessageProcessor) {
 // Write writes a message with the specified body into the queue.
 func (q *ChanQueue) Write(body string) error {
 	go func() {
-		q.c <- queue.Message{Body: body}
+		q.c <- jobrunner.Message{Body: body}
 	}()
 	return nil
 }
 
 // writeMessage writes the specified message into the queue.
-func (q *ChanQueue) writeMessage(msg queue.Message) {
+func (q *ChanQueue) writeMessage(msg jobrunner.Message) {
 	go func() {
 		q.c <- msg
 	}()

@@ -14,7 +14,6 @@ import (
 
 	"github.com/adevinta/vulcan-agent/v2/backend"
 	"github.com/adevinta/vulcan-agent/v2/log"
-	"github.com/adevinta/vulcan-agent/v2/queue"
 	"github.com/adevinta/vulcan-agent/v2/stateupdater"
 )
 
@@ -33,7 +32,29 @@ var (
 	DefaultMaxMessageProcessedTimes = 200
 )
 
-type token = struct{}
+// Token represents a token provided by a processor to signal that there are
+// free slots to process a new message. Values of type Token can only be obtained
+// by reading from the channel provided by calling [Runner.FreeTokens].
+type Token interface {
+	// opaque is dummy method that doesn't provide any functionality, it's
+	// defined here to ensure at compile time that only types defined in this
+	// package can implement this interface.
+	opaque()
+}
+
+type token struct{}
+
+func (_ token) opaque() {}
+
+// Message defines the information a queue reader passes to a processor about a
+// message.
+type Message struct {
+	// Body contains the body of the message to be processed.
+	Body string
+	// TimesRead contains the number of times this concrete message has been
+	// read so far.
+	TimesRead int
+}
 
 type checkAborter struct {
 	cancels sync.Map
@@ -107,7 +128,7 @@ type Runner struct {
 	// caller of the Run function must take a token from this channel before
 	// actually calling "Run" in order to ensure there are no more than
 	// maxTokens jobs running at the same time.
-	Tokens                   chan interface{}
+	Tokens                   chan Token
 	Logger                   log.Logger
 	CheckUpdater             CheckStateUpdater
 	cAborter                 *checkAborter
@@ -128,7 +149,7 @@ type RunnerConfig struct {
 // jobs that the Runner can execute at the same time.
 func New(logger log.Logger, backend backend.Backend, checkUpdater CheckStateUpdater,
 	aborted AbortedChecks, cfg RunnerConfig) *Runner {
-	tokens := make(chan interface{}, cfg.MaxTokens)
+	tokens := make(chan Token, cfg.MaxTokens)
 	for i := 0; i < cfg.MaxTokens; i++ {
 		tokens <- token{}
 	}
@@ -161,34 +182,38 @@ func (cr *Runner) AbortAllChecks(ID string) {
 
 // FreeTokens returns a channel that can be used to get a free token to call the
 // ProcessMessage method.
-func (cr *Runner) FreeTokens() chan interface{} {
+func (cr *Runner) FreeTokens() chan Token {
 	return cr.Tokens
 }
 
 // ProcessMessage executes the job specified in a message given a free token
-// that must be obtained from the Tokens channel. The func does not actually do
-// anything with the token, the parameter is present just to make obvious that
-// there must be free tokens on the channel before calling this method. When the
-// message if processed the channel returned will indicate if the message must
-// be deleted or not.
-func (cr *Runner) ProcessMessage(msg queue.Message, token interface{}) <-chan bool {
+// that must be obtained from the [Runner.FreeTokens] channel. When the message
+// if processed the channel returned will indicate if the message must be
+// deleted or not.
+func (cr *Runner) ProcessMessage(msg Message, t Token) <-chan bool {
 	processed := make(chan bool, 1)
-	go cr.runJob(msg, token, processed)
+	go cr.runJob(msg, t, processed)
 	return processed
 }
 
-func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
+func (cr *Runner) runJob(m Message, t Token, processed chan bool) {
+	defer cr.releaseToken(t)
+	defer close(processed)
+	// delete is updated along this function with a value indicating if the
+	// message defining the job to be run can be deleted, because it is
+	// considered processed, or not, because there was a  potentially transient
+	// error and the job must be retried.
+	delete := false
+	defer func() { processed <- delete }()
+
 	j := &Job{
 		RunTime: time.Now().Unix(),
 	}
-	// Check the token is valid.
-	if _, ok := t.(token); !ok {
-		cr.finishJob(j, "queued", processed, false, ErrInvalidToken)
-		return
-	}
 	err := json.Unmarshal([]byte(m.Body), j)
 	if err != nil {
-		cr.finishJob(j, "read", processed, true, err)
+		err = fmt.Errorf("invalid message: %w", err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
+		delete = true
 		return
 	}
 	readMsg := fmt.Sprintf("check read from queue #[%d] times", m.TimesRead)
@@ -204,7 +229,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 			})
 		if err != nil {
 			err = fmt.Errorf("error updating the status of the check: %s, error: %w", j.CheckID, err)
-			cr.finishJob(j, status, processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 			return
 		}
 		cr.Logger.Errorf("error max processed times exceeded for check: %s", j.CheckID)
@@ -212,17 +237,18 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		err = cr.CheckUpdater.FlushCheckStatus(j.CheckID)
 		if err != nil {
 			err = fmt.Errorf("error deleting the terminal status of the check: %s, error: %w", j.CheckID, err)
-			cr.finishJob(j, status, processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 			return
 		}
-		cr.finishJob(j, status, processed, true, nil)
+		delete = true
+		cr.Logger.Infof(j.logTrace("check finished successfully", "finished"))
 		return
 	}
 	// Check if the check has been aborted.
 	aborted, err := cr.abortedChecks.IsAborted(j.CheckID)
 	if err != nil {
 		err = fmt.Errorf("error querying aborted checks %w", err)
-		cr.finishJob(j, "abort", processed, false, err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 		return
 	}
 
@@ -235,11 +261,12 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 			})
 		if err != nil {
 			err = fmt.Errorf("error updating the status of the check: %s, error: %w", j.CheckID, err)
-			cr.finishJob(j, "aborting", processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 			return
 		}
 		cr.Logger.Infof("check %s already aborted", j.CheckID)
-		cr.finishJob(j, "aborted", processed, true, nil)
+		cr.Logger.Infof(j.logTrace("check finished successfully", "finished"))
+		delete = true
 		return
 	}
 
@@ -259,13 +286,14 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	// The above function can only return an error if the check already exists.
 	// So we just avoid executing it twice.
 	if err != nil {
-		cr.finishJob(j, "process", processed, true, err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
+		delete = true
 		return
 	}
 	ctName, ctVersion, err := getChecktypeInfo(j.Image)
 	if err != nil {
 		cr.cAborter.Remove(j.CheckID)
-		cr.finishJob(j, "processing", processed, false, err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 		return
 	}
 	runParams := backend.RunParams{
@@ -282,7 +310,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	finished, err := cr.Backend.Run(ctx, runParams)
 	if err != nil {
 		cr.cAborter.Remove(j.CheckID)
-		cr.finishJob(j, "failed", processed, false, err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 		return
 	}
 	var logsLink string
@@ -301,7 +329,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		logsLink, err = cr.CheckUpdater.UploadCheckData(j.CheckID, "logs", j.StartTime, res.Output)
 		if err != nil {
 			err = fmt.Errorf("error storing the logs of the check: %s, error %w", j.CheckID, err)
-			cr.finishJob(j, "uploading_raw", processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 			// We return to retry the log upload later.
 			return
 		}
@@ -313,7 +341,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		})
 		if err != nil {
 			err = fmt.Errorf("error updating the link to the logs of the check: %s, error: %w", j.CheckID, err)
-			cr.finishJob(j, "linking_raw", processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 		}
 
 		cr.Logger.Debugf(j.logTrace(logsLink, "raw_logs"))
@@ -328,7 +356,7 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		!errors.Is(execErr, context.DeadlineExceeded) &&
 		!errors.Is(execErr, context.Canceled) &&
 		!errors.Is(execErr, backend.ErrNonZeroExitCode) {
-		cr.finishJob(j, "backend_error", processed, false, execErr)
+		cr.Logger.Errorf(j.logTrace(execErr.Error(), "error"))
 		return
 	}
 
@@ -357,10 +385,11 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 		err = cr.CheckUpdater.FlushCheckStatus(j.CheckID)
 		if err != nil {
 			err = fmt.Errorf("error deleting the terminal status of the check: %s, error: %w", j.CheckID, err)
-			cr.finishJob(j, status, processed, false, err)
+			cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 			return
 		}
-		cr.finishJob(j, "completed", processed, true, err)
+		cr.Logger.Infof(j.logTrace("check finished successfully", "finished"))
+		delete = true
 		return
 	}
 	err = cr.CheckUpdater.UpdateState(stateupdater.CheckState{
@@ -375,35 +404,25 @@ func (cr *Runner) runJob(m queue.Message, t interface{}, processed chan bool) {
 	err = cr.CheckUpdater.FlushCheckStatus(j.CheckID)
 	if err != nil {
 		err = fmt.Errorf("error deleting the terminal status of the check: %s, error: %w", j.CheckID, err)
-		cr.finishJob(j, status, processed, false, err)
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
 		return
 	}
-	cr.finishJob(j, "finished", processed, err == nil, err)
+	if err != nil {
+		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
+		return
+	}
+	cr.Logger.Infof(j.logTrace("check finished successfully", "finished"))
+	delete = true
 }
 
-func (cr *Runner) finishJob(j *Job, checkState string, processed chan<- bool, delete bool, err error) {
-	checkID := j.CheckID
-	if err == nil && checkID != "" {
-		cr.Logger.Infof(j.logTrace("check finished successfully", "finished"))
-	}
-	if err != nil && checkID != "" {
-		cr.Logger.Errorf(j.logTrace(err.Error(), "error"))
-	}
-	if err != nil && checkID == "" {
-		msg := fmt.Sprintf("invalid message %+v", err)
-		cr.Logger.Errorf(j.logTrace(msg, "error"))
-	}
-	// Return a token to free tokens channel.
-	// This write must not block ever.
+func (cr Runner) releaseToken(t Token) {
+	// Return a token to free the tokens channel. This write must not block
+	// ever.
 	select {
-	case cr.Tokens <- token{}:
+	case cr.Tokens <- t:
 	default:
-		cr.Logger.Errorf(j.logTrace("error, unexpected lock when writing to the tokens channel", "error"))
+		cr.Logger.Errorf("error, unexpected lock when writing to the tokens channel")
 	}
-	// Signal the caller that the job related to a message is finalized. It also
-	// states if the message related to the job must be deleted or not.
-	processed <- delete
-	close(processed)
 }
 
 // ChecksRunning returns the current number of checks running.

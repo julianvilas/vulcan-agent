@@ -9,12 +9,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/adevinta/vulcan-agent/v2/log"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
+
+	"github.com/adevinta/vulcan-agent/v2/log"
 )
 
 // Writer writes messages to and AWS SQS queue.
