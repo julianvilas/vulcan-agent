@@ -6,7 +6,6 @@ package checks
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -142,14 +141,8 @@ func (cr *Runner) AbortAll() {
 }
 
 // Run executes the job.
-func (cr *Runner) Run(msg string, timesRead int) error {
-	check := &Check{
-		RunTime: time.Now().Unix(),
-	}
-	err := json.Unmarshal([]byte(msg), check)
-	if err != nil {
-		return errors.Join(ErrUnprocessableMessage, err)
-	}
+func (cr *Runner) Run(check Check, timesRead int) error {
+	var err error
 	readMsg := fmt.Sprintf("check read from queue #[%d] times", timesRead)
 	cr.Logger.Debugf(check.logTrace(readMsg, "read"))
 	// Check if the message has been processed more than the maximum defined

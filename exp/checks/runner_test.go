@@ -190,7 +190,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 		maxMessageProcessedTimes int
 	}
 	type args struct {
-		msg       string
+		check     Check
 		timesRead int
 	}
 	tests := []struct {
@@ -236,7 +236,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -300,7 +300,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -363,7 +363,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -407,7 +407,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -477,7 +477,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -551,7 +551,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -619,7 +619,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -655,7 +655,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				maxMessageProcessedTimes: 1,
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -712,7 +712,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:             &inMemChecksUpdater{},
 			},
 			args: args{
-				msg:       string(mustMarshal(runJobFixture1)),
+				check:     runJobFixture1,
 				timesRead: 2,
 			},
 			want: nil,
@@ -763,7 +763,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -839,7 +839,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				msg: string(mustMarshal(runJobFixture1)),
+				check: runJobFixture1,
 			},
 			want: errUploadingLogsTests,
 			wantState: func(r *Runner) string {
@@ -867,7 +867,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				defaultTimeout:           tt.fields.defaultTimeout,
 				maxMessageProcessedTimes: tt.fields.maxMessageProcessedTimes,
 			}
-			got := cr.Run(tt.args.msg, tt.args.timesRead)
+			got := cr.Run(tt.args.check, tt.args.timesRead)
 			if !errors.Is(got, tt.want) {
 				t.Fatalf("error want!=got, %+v!=%+v", tt.want, got)
 			}

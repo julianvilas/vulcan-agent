@@ -6,6 +6,7 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -41,7 +42,7 @@ type Queue interface {
 }
 
 type CheckRunner interface {
-	Run(msg string, timesRead int) error
+	Run(check Check, timesRead int) error
 }
 
 type ConsumerCfg struct {
@@ -146,7 +147,16 @@ func (r *Consumer) process(msg *Message, done chan<- struct{}) {
 		r.log.Errorf("cannot process nil message")
 		return
 	}
-	err := r.Runner.Run(msg.Body, msg.TimesRead)
+	check := Check{
+		RunTime: time.Now().Unix(),
+	}
+	err := json.Unmarshal([]byte(msg.Body), &check)
+	if err != nil {
+		r.log.Errorf("unable to parse message %q: %v", msg.Body, err)
+		msg.Processed <- true
+		return
+	}
+	err = r.Runner.Run(check, msg.TimesRead)
 	del := true
 	if err != nil {
 		del = true
