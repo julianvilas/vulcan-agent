@@ -13,9 +13,6 @@ import (
 	"time"
 
 	"github.com/adevinta/vulcan-agent/v2/log"
-	"github.com/adevinta/vulcan-agent/v2/queue"
-
-	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
 var (
@@ -30,10 +27,11 @@ var (
 type Message struct {
 	Body      string
 	TimesRead int
-	// Processed will be written when the Runner stops processing the message.
-	// The value written will be true if the Runner successfully processed the
-	// message and it can be deleted from the queue. If the value written is false
-	// the Runner finished processing the message with errors so
+	// Processed will be written when a Consumer considers a message processed.
+	// The value written will be true if the message is considered to be
+	// successfully processed and can be deleted from the queue, otherwise the
+	// value written will be false and the message should not be deleted from
+	// queue so the consumer can retry processing it in the future.
 	Processed chan<- bool
 }
 
@@ -53,8 +51,7 @@ type ConsumerCfg struct {
 type Consumer struct {
 	*sync.RWMutex
 	cfg                 ConsumerCfg
-	sqs                 Queue
-	receiveParams       sqs.ReceiveMessageInput
+	queue               Queue
 	wg                  *sync.WaitGroup
 	lastMessageReceived *time.Time
 	log                 log.Logger
@@ -63,17 +60,17 @@ type Consumer struct {
 }
 
 // NewConsumer creates a new Reader with the given processor, queueARN and config.
-func NewConsumer(log log.Logger, cfg ConsumerCfg, queue Queue, processor CheckRunner) (*Consumer, error) {
+func NewConsumer(log log.Logger, cfg ConsumerCfg, queue Queue, runner CheckRunner) *Consumer {
 	return &Consumer{
 		cfg:                 cfg,
 		RWMutex:             &sync.RWMutex{},
-		Runner:              processor,
+		Runner:              runner,
 		log:                 log,
 		wg:                  &sync.WaitGroup{},
-		sqs:                 queue,
+		queue:               queue,
 		lastMessageReceived: nil,
 		nProcessingMessages: 0,
-	}, nil
+	}
 }
 
 // Start starts reading messages from the queue. It will stop reading from the
@@ -81,10 +78,14 @@ func NewConsumer(log log.Logger, cfg ConsumerCfg, queue Queue, processor CheckRu
 // channel to track when the reader stopped reading from the queue and all the
 // checks being run are finished.
 func (r *Consumer) Start(ctx context.Context) <-chan error {
+	finished := make(chan error, 1)
+	if r.cfg.MaxConcurrentChecks < 1 {
+		finished <- errors.New("MaxConcurrentChecks must be greater than 0")
+		return finished
+	}
 	done := make(chan error, 1)
 	r.wg.Add(1)
 	go r.consume(ctx, done)
-	finished := make(chan error, 1)
 	go func() {
 		err := <-done
 		r.wg.Wait()
@@ -107,7 +108,7 @@ func (r *Consumer) consume(ctx context.Context, done chan<- error) {
 	}
 	var (
 		err error
-		msg *Message
+		msg Message
 	)
 loop:
 	for {
@@ -132,7 +133,7 @@ loop:
 	close(done)
 }
 
-func (r *Consumer) process(msg *Message, done chan<- struct{}) {
+func (r *Consumer) process(msg Message, done chan<- struct{}) {
 	atomic.AddUint32(&r.nProcessingMessages, 1)
 	defer func() {
 		// Decrement the number of messages being processed, see:
@@ -143,10 +144,6 @@ func (r *Consumer) process(msg *Message, done chan<- struct{}) {
 		// Signal de goroutine has exited.
 		r.wg.Done()
 	}()
-	if msg == nil {
-		r.log.Errorf("cannot process nil message")
-		return
-	}
 	check := Check{
 		RunTime: time.Now().Unix(),
 	}
@@ -157,6 +154,11 @@ func (r *Consumer) process(msg *Message, done chan<- struct{}) {
 		return
 	}
 	err = r.Runner.Run(check, msg.TimesRead)
+	// A nil Processed channel means the queue reader that returned the message
+	// is not interested in knowing when a message was processed.
+	if msg.Processed == nil {
+		return
+	}
 	del := true
 	if err != nil {
 		del = true
@@ -168,25 +170,21 @@ func (r *Consumer) process(msg *Message, done chan<- struct{}) {
 	msg.Processed <- del
 }
 
-func (r *Consumer) readMessage(ctx context.Context) (*Message, error) {
+func (r *Consumer) readMessage(ctx context.Context) (Message, error) {
 	maxTimeNoRead := r.cfg.MaxReadTime
-	waitTime := int64(0)
 	start := time.Now()
-	var msg *Message
+	var msg Message
 	for {
-		r.receiveParams.WaitTimeSeconds = &waitTime
-		readMsg, err := r.sqs.ReadMessage(ctx)
+		readMsg, err := r.queue.ReadMessage(ctx)
 		if err != nil {
 			if errors.Is(err, ErrInvalidMessage) {
 				r.log.Errorf("error reading message: %w")
+				continue
 			}
-			if errors.Is(err, context.Canceled) {
-				return nil, err
-			}
-			return nil, err
+			return msg, err
 		}
 		if readMsg != nil {
-			msg = readMsg
+			msg = *readMsg
 			break
 		}
 		// Check if we need to stop the reader because we exceed the maximun time
@@ -194,7 +192,7 @@ func (r *Consumer) readMessage(ctx context.Context) (*Message, error) {
 		now := time.Now()
 		n := atomic.LoadUint32(&r.nProcessingMessages)
 		if maxTimeNoRead != nil && now.Sub(start) > *maxTimeNoRead && n == 0 {
-			return nil, queue.ErrMaxTimeNoRead
+			return Message{}, ErrMaxTimeNoRead
 		}
 	}
 	now := time.Now()

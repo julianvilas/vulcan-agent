@@ -23,18 +23,8 @@ import (
 var (
 	errUnexpectedTest     = errors.New("unexpected")
 	errUploadingLogsTests = errors.New("error uploading logs")
-	runJobFixture1        = Check{
+	checkFixture          = Check{
 		CheckID:      uuid.NewString(),
-		StartTime:    time.Now(),
-		Image:        "job1:latest",
-		Target:       "example.com",
-		Timeout:      60,
-		AssetType:    "hostname",
-		Options:      "{}",
-		RequiredVars: []string{"var1"},
-	}
-	runJobFixedFixtureFixedCheckID = Check{
-		CheckID:      "428b4e49-c264-4c71-b5c4-fe08e8e6cfc7",
 		StartTime:    time.Now(),
 		Image:        "job1:latest",
 		Target:       "example.com",
@@ -228,40 +218,40 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				Logger:         &log.NullLog{},
 				CheckUpdater: &inMemChecksUpdater{
 					terminalStatus: map[string]stateupdater.CheckState{
-						runJobFixture1.CheckID: {
-							ID:     runJobFixture1.CheckID,
+						checkFixture.CheckID: {
+							ID:     checkFixture.CheckID,
 							Status: str2ptr(stateupdater.StatusFinished),
 						},
 					},
 				},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
 				updater := r.CheckUpdater.(*inMemChecksUpdater)
 				gotRaws := updater.raws
 				wantRunParams := backend.RunParams{
-					CheckID:          runJobFixture1.CheckID,
+					CheckID:          checkFixture.CheckID,
 					CheckTypeName:    "job1",
 					ChecktypeVersion: "latest",
-					Image:            runJobFixture1.Image,
-					Options:          runJobFixture1.Options,
-					Target:           runJobFixture1.Target,
-					AssetType:        runJobFixture1.AssetType,
-					RequiredVars:     runJobFixture1.RequiredVars,
+					Image:            checkFixture.Image,
+					Options:          checkFixture.Options,
+					Target:           checkFixture.Target,
+					AssetType:        checkFixture.AssetType,
+					RequiredVars:     checkFixture.RequiredVars,
 				}
 				wantRaws := []CheckRaw{{
 					Raw:       mustMarshalRunParams(wantRunParams),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Raw:    &rawLink,
 						Status: str2ptr(stateupdater.StatusFinished),
 					},
@@ -300,36 +290,36 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
 				updater := r.CheckUpdater.(*inMemChecksUpdater)
 				gotRaws := updater.raws
 				wantRunParams := backend.RunParams{
-					CheckID:          runJobFixture1.CheckID,
+					CheckID:          checkFixture.CheckID,
 					CheckTypeName:    "job1",
 					ChecktypeVersion: "latest",
-					Image:            runJobFixture1.Image,
-					Options:          runJobFixture1.Options,
-					Target:           runJobFixture1.Target,
-					AssetType:        runJobFixture1.AssetType,
-					RequiredVars:     runJobFixture1.RequiredVars,
+					Image:            checkFixture.Image,
+					Options:          checkFixture.Options,
+					Target:           checkFixture.Target,
+					AssetType:        checkFixture.AssetType,
+					RequiredVars:     checkFixture.RequiredVars,
 				}
 				wantRaws := []CheckRaw{{
 					Raw:       mustMarshalRunParams(wantRunParams),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:  runJobFixture1.CheckID,
+						ID:  checkFixture.CheckID,
 						Raw: &rawLink,
 					},
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: str2ptr(stateupdater.StatusFailed),
 					},
 				}
@@ -363,7 +353,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -407,37 +397,37 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
 				updater := r.CheckUpdater.(*inMemChecksUpdater)
 				gotRaws := updater.raws
 				wantRunParams := backend.RunParams{
-					CheckID:          runJobFixture1.CheckID,
+					CheckID:          checkFixture.CheckID,
 					CheckTypeName:    "job1",
 					ChecktypeVersion: "latest",
-					Image:            runJobFixture1.Image,
-					Options:          runJobFixture1.Options,
-					Target:           runJobFixture1.Target,
-					AssetType:        runJobFixture1.AssetType,
-					RequiredVars:     runJobFixture1.RequiredVars,
+					Image:            checkFixture.Image,
+					Options:          checkFixture.Options,
+					Target:           checkFixture.Target,
+					AssetType:        checkFixture.AssetType,
+					RequiredVars:     checkFixture.RequiredVars,
 				}
 				wantRaws := []CheckRaw{{
 					Raw:       mustMarshalRunParams(wantRunParams),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
 				state := stateupdater.StatusTimeout
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:  runJobFixture1.CheckID,
+						ID:  checkFixture.CheckID,
 						Raw: &rawLink,
 					},
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: &state,
 						// Raw: &rawLink,
 					},
@@ -477,37 +467,37 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
 				updater := r.CheckUpdater.(*inMemChecksUpdater)
 				gotRaws := updater.raws
 				wantRunParams := backend.RunParams{
-					CheckID:          runJobFixture1.CheckID,
+					CheckID:          checkFixture.CheckID,
 					CheckTypeName:    "job1",
 					ChecktypeVersion: "latest",
-					Image:            runJobFixture1.Image,
-					Options:          runJobFixture1.Options,
-					Target:           runJobFixture1.Target,
-					AssetType:        runJobFixture1.AssetType,
-					RequiredVars:     runJobFixture1.RequiredVars,
+					Image:            checkFixture.Image,
+					Options:          checkFixture.Options,
+					Target:           checkFixture.Target,
+					AssetType:        checkFixture.AssetType,
+					RequiredVars:     checkFixture.RequiredVars,
 				}
 				wantRaws := []CheckRaw{{
 					Raw:       mustMarshalRunParams(wantRunParams),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
 				state := stateupdater.StatusAborted
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:  runJobFixture1.CheckID,
+						ID:  checkFixture.CheckID,
 						Raw: &rawLink,
 					},
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: &state,
 						// Raw: &rawLink,
 					},
@@ -542,7 +532,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted: &inMemAbortedChecks{
 					aborted: map[string]struct{}{
-						runJobFixture1.CheckID: {},
+						checkFixture.CheckID: {},
 					},
 				},
 				defaultTimeout: time.Duration(10 * time.Second),
@@ -551,7 +541,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
@@ -562,7 +552,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				state := stateupdater.StatusAborted
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: &state,
 					},
 				}
@@ -595,7 +585,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 				aborted: &inMemAbortedChecks{
 					aborted: map[string]struct{}{
-						runJobFixture1.CheckID: {},
+						checkFixture.CheckID: {},
 					},
 				},
 				defaultTimeout: time.Duration(10 * time.Second),
@@ -619,7 +609,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -655,7 +645,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				maxMessageProcessedTimes: 1,
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: errUnexpectedTest,
 			wantState: func(r *Runner) string {
@@ -663,14 +653,14 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				gotRaws := updater.raws
 				wantRaws := []CheckRaw{{
 					Raw:       []byte("logs"),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:  runJobFixture1.CheckID,
+						ID:  checkFixture.CheckID,
 						Raw: &rawLink,
 					},
 				}
@@ -712,7 +702,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:             &inMemChecksUpdater{},
 			},
 			args: args{
-				check:     runJobFixture1,
+				check:     checkFixture,
 				timesRead: 2,
 			},
 			want: nil,
@@ -724,7 +714,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				state := stateupdater.StatusFailed
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: &state,
 					},
 				}
@@ -763,37 +753,37 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				CheckUpdater:   &inMemChecksUpdater{},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: nil,
 			wantState: func(r *Runner) string {
 				updater := r.CheckUpdater.(*inMemChecksUpdater)
 				gotRaws := updater.raws
 				wantRunParams := backend.RunParams{
-					CheckID:          runJobFixture1.CheckID,
+					CheckID:          checkFixture.CheckID,
 					CheckTypeName:    "job1",
 					ChecktypeVersion: "latest",
-					Image:            runJobFixture1.Image,
-					Options:          runJobFixture1.Options,
-					Target:           runJobFixture1.Target,
-					AssetType:        runJobFixture1.AssetType,
-					RequiredVars:     runJobFixture1.RequiredVars,
+					Image:            checkFixture.Image,
+					Options:          checkFixture.Options,
+					Target:           checkFixture.Target,
+					AssetType:        checkFixture.AssetType,
+					RequiredVars:     checkFixture.RequiredVars,
 				}
 				wantRaws := []CheckRaw{{
 					Raw:       mustMarshalRunParams(wantRunParams),
-					CheckID:   runJobFixture1.CheckID,
-					StartTime: runJobFixture1.StartTime,
+					CheckID:   checkFixture.CheckID,
+					StartTime: checkFixture.StartTime,
 				}}
 				gotUpdates := updater.updates
 				state := stateupdater.StatusFailed
-				rawLink := fmt.Sprintf("%s/logs", runJobFixture1.CheckID)
+				rawLink := fmt.Sprintf("%s/logs", checkFixture.CheckID)
 				wantUpdates := []stateupdater.CheckState{
 					{
-						ID:  runJobFixture1.CheckID,
+						ID:  checkFixture.CheckID,
 						Raw: &rawLink,
 					},
 					{
-						ID:     runJobFixture1.CheckID,
+						ID:     checkFixture.CheckID,
 						Status: &state,
 					},
 				}
@@ -830,8 +820,8 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				Logger:         &log.NullLog{},
 				CheckUpdater: &inMemChecksUpdater{
 					terminalStatus: map[string]stateupdater.CheckState{
-						runJobFixture1.CheckID: {
-							ID:     runJobFixture1.CheckID,
+						checkFixture.CheckID: {
+							ID:     checkFixture.CheckID,
 							Status: str2ptr(stateupdater.StatusFinished),
 						},
 					},
@@ -839,7 +829,7 @@ func TestRunner_ProcessMessage(t *testing.T) {
 				},
 			},
 			args: args{
-				check: runJobFixture1,
+				check: checkFixture,
 			},
 			want: errUploadingLogsTests,
 			wantState: func(r *Runner) string {
