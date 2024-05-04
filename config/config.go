@@ -187,7 +187,7 @@ var pullPolicyStrings = map[PullPolicy]string{
 }
 
 // MarshalText returns string representation of a PullPolicy instance.
-func (a *PullPolicy) MarshalText() (text []byte, err error) {
+func (a PullPolicy) MarshalText() (text []byte, err error) {
 	s, err := a.String()
 	if err != nil {
 		return nil, err
