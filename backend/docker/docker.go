@@ -25,9 +25,9 @@ import (
 	"github.com/docker/cli/cli/command"
 	dockercliconfig "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/flags"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
@@ -454,8 +454,8 @@ func (b *Docker) getContainerlogs(ID string) ([]byte, error) {
 	return out, nil
 }
 
-func (b *Docker) imageExists(ctx context.Context, image string) (bool, error) {
-	domain, path, tag, err := backend.ParseImage(image)
+func (b *Docker) imageExists(ctx context.Context, img string) (bool, error) {
+	domain, path, tag, err := backend.ParseImage(img)
 	if err != nil {
 		return false, err
 	}
@@ -467,7 +467,7 @@ func (b *Docker) imageExists(ctx context.Context, image string) (bool, error) {
 		pattern = path + ":" + tag
 	}
 
-	images, err := b.cli.ImageList(ctx, types.ImageListOptions{
+	images, err := b.cli.ImageList(ctx, image.ListOptions{
 		Filters: filters.NewArgs(filters.KeyValuePair{
 			Key:   "reference",
 			Value: pattern,
@@ -482,12 +482,12 @@ func (b *Docker) imageExists(ctx context.Context, image string) (bool, error) {
 	return true, nil
 }
 
-func (b *Docker) pull(ctx context.Context, image string) error {
+func (b *Docker) pull(ctx context.Context, img string) error {
 	if b.config.PullPolicy == config.PullPolicyNever {
 		return nil
 	}
 	if b.config.PullPolicy == config.PullPolicyIfNotPresent {
-		exists, err := b.imageExists(ctx, image)
+		exists, err := b.imageExists(ctx, img)
 		if err != nil {
 			return err
 		}
@@ -495,10 +495,10 @@ func (b *Docker) pull(ctx context.Context, image string) error {
 			return nil
 		}
 	}
-	pullOpts := types.ImagePullOptions{}
+	pullOpts := image.PullOptions{}
 
 	// Image was validated before and ParseImage always return a domain.
-	domain, _, _, err := backend.ParseImage(image)
+	domain, _, _, err := backend.ParseImage(img)
 	if err != nil {
 		return err
 	}
@@ -510,10 +510,10 @@ func (b *Docker) pull(ctx context.Context, image string) error {
 		}
 		pullOpts.RegistryAuth = base64.URLEncoding.EncodeToString(buf)
 	}
-	b.log.Debugf("pulling image=%s domain=%s auth=%v", image, domain, pullOpts.RegistryAuth != "")
+	b.log.Debugf("pulling image=%s domain=%s auth=%v", img, domain, pullOpts.RegistryAuth != "")
 	start := time.Now()
 	err = b.retryer.WithRetries("PullDockerImage", func() error {
-		respBody, err := b.cli.ImagePull(ctx, image, pullOpts)
+		respBody, err := b.cli.ImagePull(ctx, img, pullOpts)
 		if err != nil {
 			return err
 		}
@@ -525,7 +525,7 @@ func (b *Docker) pull(ctx context.Context, image string) error {
 	})
 	b.log.Infof(
 		"pulled image=%s domain=%s auth=%v duration=%f err=%v",
-		image,
+		img,
 		domain,
 		pullOpts.RegistryAuth != "",
 		time.Since(start).Seconds(),
